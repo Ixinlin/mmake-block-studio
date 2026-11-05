@@ -942,6 +942,19 @@
       return;
     }
     if (!ws.getTopBlocks(false).length) { ZKB.toast('工作区还没有积木'); return; }
+    /* 第六十轮：程序里用了画笔时，画笔只画在「舞台」上。
+       如果当前停在虚拟仿真页面，自动切回舞台，否则学生看不到笔迹，
+       会以为积木没生效。 */
+    var penTypes = ['zk_pen_clear', 'zk_pen_stamp', 'zk_pen_down', 'zk_pen_up',
+      'zk_pen_color_to', 'zk_pen_color_add', 'zk_pen_color_set',
+      'zk_pen_size_add', 'zk_pen_size_set'];
+    var usesPen = ws.getAllBlocks(false).some(function (b) {
+      return penTypes.indexOf(b.type) >= 0;
+    });
+    if (usesPen && mode !== 'stage') {
+      setMode('stage');
+      ZKB.log('检测到画笔积木，已切换到舞台模式（画笔只在舞台上绘制）', 'log-info');
+    }
     refreshCode();
     try {
       ZKB.SimEngine.run(ws);
@@ -986,7 +999,12 @@
     var xml = ZKB.Project.toMxml(ws, ZKB.SimBoard.getDevices(), {
       mode: 'mpython',
       /* 附带当前语音凭据是否自定义过，方便换设备续用 */
-      xfyunCustom: !!(ZKB.Xfyun && ZKB.Xfyun.isCustom())
+      xfyunCustom: !!(ZKB.Xfyun && ZKB.Xfyun.isCustom()),
+      /* 第六十轮：把舞台情景（背景情景 / 角色位置 / 小助手位置 / 画布尺寸）
+         一起存进 mxml 的 zkbmeta 注释里。
+         mPython 官方会忽略这个注释，不影响它打开工程；
+         本项目打开时按它还原舞台，不用再手动布置一遍。 */
+      stage: ZKB.Stage && ZKB.Stage.serialize ? ZKB.Stage.serialize() : null
     });
     download(new Blob([xml], { type: 'text/xml;charset=utf-8' }),
       ZKB.Project.fileName());
@@ -1095,6 +1113,15 @@
     zk_ntp_sync: 'ntp',
     zk_mqtt_connect: 'mqtt', zk_mqtt_pub: 'mqtt',
     zk_mqtt_msg: 'mqtt', zk_when_mqtt: 'mqtt',
+    /* 第六十轮：SIoT 全套 → MQTT 设备；画笔 → 画笔设备；蓝牙 → 蓝牙设备 */
+    zk_siot_init: 'mqtt', zk_mqtt_do_connect: 'mqtt', zk_mqtt_ok: 'mqtt',
+    zk_mqtt_sub: 'mqtt', zk_when_mqtt_topic: 'mqtt', zk_when_mqtt_msg: 'mqtt',
+    zk_when_run: 'pen', zk_pen_clear: 'pen', zk_pen_stamp: 'pen',
+    zk_pen_down: 'pen', zk_pen_up: 'pen', zk_pen_color_to: 'pen',
+    zk_pen_color_add: 'pen', zk_pen_color_set: 'pen',
+    zk_pen_size_add: 'pen', zk_pen_size_set: 'pen',
+    zk_ble_hid: 'ble', zk_ble_connected: 'ble',
+    zk_ble_key: 'ble', zk_ble_mouse: 'ble',
     zk_radio_send: 'radio', zk_radio_msg: 'radio',
     zk_radio_group: 'radio', zk_when_radio: 'radio',
     zk_weather: 'weather',
@@ -1199,9 +1226,27 @@
       var addedMx = autoAddDevices();
       rebuildToolbox();
       refreshCode();
+      /* 第五十八轮：旧版把「刷新屏幕显示」存成了空的「屏幕显示」，
+         这里已经自动救回来了，给用户一句提示，免得以为积木自己变了 */
+      var fixed = ZKB.Project.lastRepair ? ZKB.Project.lastRepair() : 0;
+      if (fixed > 0) {
+        ZKB.log('已修复 ' + fixed + ' 个被旧版本存坏的「刷新屏幕显示」积木', 'log-ok');
+      }
       if (addedMx.length) {
         ZKB.log('已自动添加拓展设备：' + addedMx.join('、'), 'log-ok');
         ZKB.toast('已自动添加 ' + addedMx.length + ' 个拓展设备');
+      }
+      /* 第六十轮：还原随工程保存的舞台情景（背景 / 角色 / 位置）
+         —— 放在自动补设备之后，避免联动元素被覆盖掉 */
+      if (data.extra && data.extra.stage && ZKB.Stage && ZKB.Stage.restore) {
+        try {
+          ZKB.Stage.restore(data.extra.stage);
+          var nItems = (data.extra.stage.items || []).length;
+          ZKB.log('已还原舞台情景：' + nItems + ' 个舞台元素' +
+            (data.extra.stage.sceneKey ? '（情景 ' + data.extra.stage.sceneKey + '）' : ''), 'log-ok');
+        } catch (e) {
+          ZKB.log('舞台情景还原失败：' + e.message, 'log-err');
+        }
       }
 
       /* 导入官方 mxml 时，若有本项目未收录的积木类型，给出明确提示 */

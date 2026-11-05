@@ -14,11 +14,63 @@
     return JS.valueToCode(block, name, NONE) || (fallback === undefined ? 'null' : fallback);
   }
 
-  /* ---------- 循环 / 等待：异步不卡死 ---------- */
+  /* ---------- 循环 / 等待：异步不卡死 ----------
+   * 第五十七轮（关键修复）：
+   *   这里原来只重写了 controls_forever，「如果/直到重复执行」
+   *   （controls_whileUntil）和「重复 n 次 / for 循环」全都落到 Blockly
+   *   内置的**同步**生成器上，生成的是「没有 await 的 while / for」。
+   *   这些代码跑在 AsyncFunction 里，一旦进入循环就再也不会让出事件循环，
+   *   浏览器连重绘和按钮点击都做不了 —— 页面直接卡死。
+   *
+   *   典型触发：光控灯
+   *       while (!(读光线强度 < 50)) {
+   *          在屏幕显示 环境光强度值：(读光线强度)   ← 循环体里没有任何延时
+   *       }
+   *   真机上位循环里还有 I2C 读屏，跑得慢；仿真里纯 JS 能跑到上百万次/秒，
+   *   结果就是"点了运行马上未响应"。
+   *
+   *   修复原则：
+   *     · 每一轮迭代都必须有一次 await（否则事件循环被占死）；
+   *     · 「重复执行 / 如果重复执行」用 S.tick() 控速，避免刷屏空转；
+   *     · 「重复 n 次 / for」保持原有速度，只用 S.loopPoint() 做时间切片：
+   *       循环跑得快时它几乎零开销，连续占用主线程久了才真正让出一次；
+   *     · 用户点「停止」时立即中断整个程序，而不是卡到循环条件变假为止。
+   */
   F['controls_forever'] = function (block) {
     var branch = JS.statementToCode(block, 'SUBSTACK') || '';
-    return 'while (S.running()) {\n' + branch + '  await S.tick();\n}\n';
+    /* tick 放在循环体最前面：这样循环体里写 continue 也不会跳过节流 */
+    return 'while (S.running()) {\n  await S.tick();\n' + branch + '}\n';
   };
+
+  F['controls_whileUntil'] = function (block) {
+    var until = block.getFieldValue('MODE') === 'UNTIL';
+    var cond = JS.valueToCode(block, 'BOOL',
+      until ? JS.ORDER_LOGICAL_NOT : NONE) || 'false';
+    if (until) cond = '!' + cond;
+    var branch = JS.statementToCode(block, 'DO') || '';
+    if (JS.addLoopTrap) branch = JS.addLoopTrap(branch, block) || '';
+    return 'while (' + cond + ') {\n' +
+      '  if (!S.running()) return;\n' +      // 停止后立刻结束整个程序
+      '  await S.tick();\n' +                // 每轮都让出主线程 + 控速
+      branch + '}\n';
+  };
+  /* 有界循环（重复 n 次 / for / forEach）：包一层，在循环体开头插一次
+     S.loopPoint()。不改变循环本身的语义和变数命名——先让 Blockly 内置
+     生成器原样生成，再把语句插进去，比手写一遍更不容易出错。 */
+  ['controls_repeat_ext', 'controls_repeat', 'controls_for', 'controls_forEach']
+    .forEach(function (type) {
+      var inner = F[type];
+      if (!inner) { console.warn('[gen-sim] 未找到内置生成器：' + type); return; }
+      /* 注意：Blockly 10 的生成器函数签名是 (block, generator)，
+         漏传第二个参数内置实现里会报 valueToCode of undefined */
+      F[type] = function (block, generator) {
+        var code = inner(block, generator || JS) || '';
+        var i = code.indexOf('{\n');          // 循环体开头
+        if (i < 0) return code;
+        return code.slice(0, i + 2) + '  await S.loopPoint();\n' + code.slice(i + 2);
+      };
+    });
+
   F['zk_wait_sec'] = function (b) {
     return 'await S.sleep((' + v(b, 'SEC', '1') + ') * 1000);\n';
   };
@@ -224,6 +276,8 @@
   F['zk_sound'] = function () { return ['S.sound()', ATOM]; };
   F['zk_accel'] = function (b) { return ['S.accel("' + b.getFieldValue('AXIS') + '")', ATOM]; };
   F['zk_tilt'] = function (b) { return ['S.tilt("' + b.getFieldValue('K') + '")', ATOM]; };
+  /* 第六十轮：摇晃判定（第 8 课蓝牙示例用） */
+  F['zk_is_shake'] = function () { return ['S.shakeNow()', ATOM]; };
 
   /* ---------- 蜂鸣器 ---------- */
   F['zk_note'] = function (b) {
@@ -745,11 +799,118 @@
     return "await S.call('" + (b.defId_ || '') + "', [" + parts.join(', ') + ']);\n';
   };
 
+  /* ============================================================
+   * 第六十轮：官方「自制积木」必须生成 **async** 函数
+   *
+   * 湘教版八年级示例（跌倒自动远程求助 等）用的是 Blockly 原生的
+   * procedures_defnoreturn / procedures_callnoreturn。
+   * Blockly 自带的 JS 生成器产出的是**同步** function，
+   * 可函数体里全是 `await S.sleep(...)` ——
+   * 整段代码直接 `SyntaxError: await is only valid in async functions`，
+   * 一点运行就崩，而且报错位置指在无关行上，极难排查。
+   *
+   * 这里把定义改成 async function、调用加 await，改动最小且不碰结构。
+   * ============================================================ */
+  (function () {
+    function procName(v) {
+      try {
+        return JS.nameDB_.getName(v, Blockly.Names.NameType.PROCEDURE);
+      } catch (e) {
+        return String(v || '').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '_');
+      }
+    }
+    function varName(v) {
+      try {
+        return JS.nameDB_.getName(v, Blockly.Names.NameType.VARIABLE);
+      } catch (e) { return String(v || 'a'); }
+    }
+    /* 定义：async function name(args) { … } */
+    JS.forBlock['procedures_defnoreturn'] = function (block) {
+      var args = (block.arguments_ || []).map(varName).join(', ');
+      var body = JS.statementToCode(block, 'STACK') || '';
+      return 'async function ' + procName(block.getFieldValue('NAME')) +
+        '(' + args + ') {\n' + body + '}\n';
+    };
+    /* 调用：await name(x, y); */
+    JS.forBlock['procedures_callnoreturn'] = function (block) {
+      var args = (block.arguments_ || []).map(function (a) {
+        return JS.valueToCode(block, String(a).toUpperCase(), JS.ORDER_NONE) || 'null';
+      }).join(', ');
+      return 'await ' + procName(block.getFieldValue('NAME')) + '(' + args + ');\n';
+    };
+  })();
+
   /* ---------- 事件帽子（手动编译，此处占位避免误入普通链） ---------- */
   ['zk_when_start', 'zk_when_btn', 'zk_when_touch', 'zk_when_shake', 'zk_when_ir',
-    'zk_when_radio', 'zk_when_mqtt'].forEach(function (t) {
+    'zk_when_radio', 'zk_when_mqtt',
+    /* 第六十轮：舞台 / 画笔入口 + SIoT 主题帽子 */
+    'zk_when_run', 'zk_when_mqtt_topic', 'zk_when_mqtt_msg'].forEach(function (t) {
     F[t] = function () { return ''; };
   });
+
+  /* ============================================================
+   * 第六十轮：画笔（S.pen.* → ZKB.Stage.penXxx）
+   * 画笔不碰硬件，全部落在舞台的画笔层上。
+   * ============================================================ */
+  F['zk_pen_clear'] = function () { return 'S.pen.clear();\n'; };
+  F['zk_pen_stamp'] = function () { return 'S.pen.stamp();\n'; };
+  F['zk_pen_down'] = function () { return 'S.pen.down();\n'; };
+  F['zk_pen_up'] = function () { return 'S.pen.up();\n'; };
+  F['zk_pen_color_to'] = function (b) {
+    return 'S.pen.setColor(' + JSON.stringify(b.getFieldValue('COLOR') || '#0000ff') + ');\n';
+  };
+  F['zk_pen_color_add'] = function (b) {
+    return 'S.pen.change(' + JSON.stringify(b.getFieldValue('PARAM') || 'color') + ', ' +
+      v(b, 'N', '10') + ');\n';
+  };
+  F['zk_pen_color_set'] = function (b) {
+    return 'S.pen.setParam(' + JSON.stringify(b.getFieldValue('PARAM') || 'color') + ', ' +
+      v(b, 'N', '50') + ');\n';
+  };
+  F['zk_pen_size_add'] = function (b) { return 'S.pen.changeSize(' + v(b, 'N', '1') + ');\n'; };
+  F['zk_pen_size_set'] = function (b) { return 'S.pen.setSize(' + v(b, 'N', '5') + ');\n'; };
+
+  /* ---------- 第六十轮：等待直到 / 无线广播开关 / 输入框 ---------- */
+  F['zk_wait_until'] = function (b) {
+    /* 每轮重新求值条件，并让出事件循环（否则永久等待会卡死页面） */
+    return 'while (!(' + v(b, 'BOOL', 'true') + ')) { await S.tick(); }\n';
+  };
+  F['zk_radio_on'] = function (b) {
+    return 'S.radioOn(' + JSON.stringify(b.getFieldValue('ON') || 'on') + ');\n';
+  };
+  F['zk_ask'] = function (b) {
+    return 'await S.ask(' + v(b, 'V', '"请输入"') + ');\n';
+  };
+  F['zk_answer'] = function () { return ['S.answer()', ATOM]; };
+
+  /* ---------- 第六十轮：SIoT / MQTT（多实例 + 真实/虚拟双通道） ---------- */
+  F['zk_siot_init'] = function (b) {
+    return 'S.mqttSetup(' + v(b, 'CLIENT_ID', '"userA"') + ', ' + v(b, 'SERVER', '"192.168.1.150"') +
+      ', ' + v(b, 'IOT_USER', '"siot"') + ', ' + v(b, 'IOT_PWD', '"zhangkong"') + ');\n';
+  };
+  F['zk_mqtt_do_connect'] = function () { return 'await S.mqttDoConnect();\n'; };
+  F['zk_mqtt_ok'] = function () { return ['S.mqttOk()', ATOM]; };
+  F['zk_mqtt_sub'] = function (b) {
+    var out = '';
+    for (var i = 0; i < (b.subN_ || 1); i++) {
+      var code = v(b, 'ADD' + i, '');
+      if (!code) continue;
+      out += 'S.mqttSub(' + code + ');\n';
+    }
+    return out;
+  };
+
+  /* ---------- 第六十轮：蓝牙 BLE HID ---------- */
+  F['zk_ble_hid'] = function (b) {
+    return 'await S.ble.start(' + v(b, 'NAME', '"mpy_hid"') + ');\n';
+  };
+  F['zk_ble_connected'] = function () { return ['S.ble.connected()', ATOM]; };
+  F['zk_ble_key'] = function (b) {
+    return 'await S.ble.key(' + JSON.stringify(b.getFieldValue('KEY') || 'SPACE') + ');\n';
+  };
+  F['zk_ble_mouse'] = function (b) {
+    return 'await S.ble.mouse(' + (b.getFieldValue('ACT') || '1') + ');\n';
+  };
 
   /* 自制积木定义 → S.def(id, 异步函数)；形参可回写到连接的同名变量 */
   function myDefSim(block) {
@@ -945,6 +1106,17 @@
         code = 'S.on("radio", async function () {\n' + chainCode(top.getNextBlock()) + '});';
       } else if (t === 'zk_when_mqtt') {
         code = 'S.onMqtt(' + v(top, 'TOPIC', '""') + ', async function () {\n' +
+          chainCode(top.getNextBlock()) + '});';
+      } else if (t === 'zk_when_run') {
+        /* 第六十轮：舞台 / 画笔程序的入口，与「当掌控板启动」同样在 ▶ 时启动 */
+        code = 'S.task(async function () {\n' + chainCode(top.getNextBlock()) + '});';
+      } else if (t === 'zk_when_mqtt_topic') {
+        /* 官方帽子的主题是 field（自由文本） */
+        code = 'S.onMqtt(' + JSON.stringify(top.getFieldValue('TOPIC') || '') +
+          ', async function () {\n' + chainCode(top.getNextBlock()) + '});';
+      } else if (t === 'zk_when_mqtt_msg') {
+        code = 'S.onMqttMsg(' + JSON.stringify(top.getFieldValue('TOPIC') || '') + ', ' +
+          v(top, 'MSG', '""') + ', async function () {\n' +
           chainCode(top.getNextBlock()) + '});';
       } else if (t === 'zk_my_def') {
         /* 已在 defParts 中处理 */

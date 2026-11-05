@@ -289,6 +289,25 @@
         '<path d="M16 32 q8 9 16 0" fill="none" stroke="#cbb9e0" stroke-width="1.8" stroke-linecap="round"/>' +
         '<g fill="#c79a3a"><rect x="12" y="38" width="4" height="5"/><rect x="19" y="38" width="4" height="5"/>' +
         '<rect x="26" y="38" width="4" height="5"/><rect x="33" y="38" width="4" height="5"/></g></svg>';
+    },
+    /* 第六十轮：画笔（非硬件）—— 一支斜放的画笔 + 一道彩色笔迹 */
+    pen: function (s) {
+      return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 48 48">' +
+        '<path d="M8 40 q10 -4 18 -12" fill="none" stroke="#0fbd8c" stroke-width="3.4" stroke-linecap="round"/>' +
+        '<path d="M30 12 l6 -6 6 6 -6 6 z" fill="#e8c66a" stroke="#a8842f" stroke-width="1.2"/>' +
+        '<path d="M30 18 l-9 15 3 3 15 -9 z" fill="#0f9d8e" stroke="#0b7a6e" stroke-width="1.2"/>' +
+        '<path d="M21 33 l-3 8 8 -3 z" fill="#2b3138"/></svg>';
+    },
+    /* 第六十轮：蓝牙（无线）—— 蓝牙符号 + 电波弧 */
+    ble: function (s) {
+      return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 48 48">' +
+        '<circle cx="24" cy="24" r="15" fill="#2a2350"/>' +
+        '<path d="M24 10 L32 17 L24 24 L32 31 L24 38 L24 10 Z" fill="none" stroke="#9d8cff" ' +
+        'stroke-width="2.2" stroke-linejoin="round"/>' +
+        '<path d="M18 17 L24 24 L18 31" fill="none" stroke="#9d8cff" stroke-width="2.2" ' +
+        'stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<g stroke="#c9bfff" stroke-width="1.5" fill="none" opacity=".8">' +
+        '<path d="M36 15 a12 12 0 0 1 0 18"/><path d="M40 11 a18 18 0 0 1 0 26"/></g></svg>';
     }
   };
 
@@ -532,6 +551,19 @@
     {
       id: 'speech2', name: '离线语音识别', desc: '离线语音识别模块（UART），无需联网',
       pins: ['P13', 'P15'], cat: 'sensor'
+    },
+    /* —— 第六十轮 ——————————————————————————————
+       画笔：不是硬件，属于舞台扩展（Scratch 画笔）。
+       添加后「画笔」分类出现在工具箱里，可直接在舞台上画图，
+       不需要接线、不弹连接画面，也不占用掌控板任何端口。
+       —— 第六十轮：蓝牙：无线通信（BLE HID 键盘/鼠标），同样无需接线。 */
+    {
+      id: 'pen', name: '画笔', desc: '舞台画笔（非硬件）：落笔 / 抬笔 / 变色 / 粗细 / 图章',
+      pins: ['免接线'], cat: 'other'
+    },
+    {
+      id: 'ble', name: '蓝牙', desc: '蓝牙键盘 / 鼠标（BLE HID），无线控制电脑与手机',
+      pins: ['2.4G'], cat: 'network'
     }
   ];
 

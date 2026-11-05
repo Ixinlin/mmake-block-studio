@@ -14,6 +14,9 @@
 
   var root = null;          // <svg>
   var gBg = null, gItems = null, gFx = null, gUi = null, night = null;
+  /* 第六十轮：画笔层（Scratch pen 层）—— 在背景之上、元素之下，
+     落笔后元素移动留下的轨迹与图章都画进这一层，「全部擦除」只清它 */
+  var gPen = null;
   var bubble = null, bubbleHideAt = 0;
   /* 第二十四轮：串口/控制台输出气泡 —— 画在 SVG 里并跟随掌控小助手，
      不再用 HTML 浮层（会挡住下方按钮）。gSay 由 makeSayBubble 懒创建。 */
@@ -67,11 +70,13 @@
       root.appendChild(defs);
 
       gBg = layer('g', 'stage-layer-bg');
+      gPen = layer('g', 'stage-layer-pen');
       gItems = layer('g', 'stage-layer-items');
       gFx = layer('g', 'stage-layer-fx');
       gUi = layer('g', 'stage-layer-ui');
       gSayLayer = layer('g', 'stage-layer-say');
-      root.appendChild(gBg); root.appendChild(gItems);
+      root.appendChild(gBg); root.appendChild(gPen);
+      root.appendChild(gItems);
       root.appendChild(gFx); root.appendChild(gUi);
       root.appendChild(gSayLayer);   /* 气泡层永远最上，不被 UI 面板重绘影响 */
 
@@ -314,9 +319,20 @@
   function setItemPos(uid, x, y, persist) {
     var it = items.filter(function (i) { return i.uid === uid; })[0];
     if (!it) return null;
+    /* 第六十轮：画笔轨迹 —— 落笔状态下元素被移动（含拖动 / 运动积木 /
+       滑行），在画笔层留下一条从旧位置到新位置的线段（Scratch pen 语义） */
+    var ox = it.x, oy = it.y;
     var def = LIB()[it.k] || { w: 40, h: 40 };
     it.x = Math.round(Math.max(-def.w / 2, Math.min(VW - def.w / 2, x)));
     it.y = Math.round(Math.max(-def.h / 2, Math.min(VH - def.h / 2, y)));
+    if (gPen && penSt[uid] && penSt[uid].down && (ox !== it.x || oy !== it.y)) {
+      var st = penSt[uid];
+      el('line', {
+        x1: ox, y1: oy, x2: it.x, y2: it.y,
+        stroke: penRGBA(st), 'stroke-width': st.size,
+        'stroke-linecap': 'round'
+      }, gPen);
+    }
     /* 带运动学的元素（模拟小车用 _sx/_sy 记录物理位置）：
        同步物理坐标，否则下一帧 tickCar 会把这里设置的位置覆盖回去 */
     if (it._sx !== undefined) {
@@ -342,6 +358,8 @@
     selUid = null;
     if (typeof updateSelInfo === 'function') updateSelInfo();
     gItems.innerHTML = '';
+    /* 切换情景 / 打开文件 / 新建时一并擦除画笔轨迹与画笔状态 */
+    penReset();
     /* 清空联动索引，否则下次 syncDevices 会认为元素已存在而不再重建 */
     linkedItems = {};
     saveScene();
@@ -2369,7 +2387,9 @@
     pm25: 'pm25Sensor', baro: 'baroSensor',
     irTx: 'irTxModule', remote: 'irRemote',
     /* 第十四轮：巡线小车（机器人模型由舞台情景自行布置元素） */
-    traceCar: 'traceCar'
+    traceCar: 'traceCar',
+    /* 第六十轮：画笔（非硬件，添加后舞台出现画笔元素作为落笔载体） */
+    pen: 'pen'
   };
   var linkedItems = {};   /* devId → uid */
 
@@ -2476,7 +2496,16 @@
       applyScene('study', true);
       return;
     }
-    raw.items.forEach(function (r) {
+    restoreItems(raw.items);
+    items.forEach(updateItemLabel);
+    rebuildLinked();
+    /* 第三十八轮：恢复上次场景时同步「情景」下拉框与右侧情景名 */
+    if (raw.sceneKey) syncSceneSelect(raw.sceneKey);
+  }
+
+  /* 从记录数组批量恢复元素（restoreScene 与工程文件载入共用） */
+  function restoreItems(list) {
+    (list || []).forEach(function (r) {
       if (r.custom) {
         /* 自定义上传元素 */
         var it = {
@@ -2509,10 +2538,42 @@
         }
       }
     });
+  }
+
+  /* 第六十轮：舞台情景随工程文件保存 / 载入。
+     serialize() 产出可 JSON 化的纯数据（写进 mxml 的 zkbmeta 注释），
+     restore(data) 清空当前舞台后按数据重建元素 / 情景 / 小助手位置。 */
+  function serialize() {
+    return {
+      v: 1,
+      sceneKey: curSceneKey || '',
+      size: { w: VW, h: VH },
+      assistant: { x: assistant.x, y: assistant.y },
+      items: items.map(function (i) {
+        return {
+          k: i.k, x: i.x, y: i.y, rot: i.rot || 0, scale: i.scale || 1,
+          opacity: i.opacity != null ? i.opacity : null,
+          dev: i.dev || null,
+          locked: i.locked ? 1 : 0,
+          hideText: i.hideText ? 1 : 0,
+          custom: i.custom || null
+        };
+      })
+    };
+  }
+  function restore(data) {
+    if (!data || typeof data !== 'object') return false;
+    clearItems();
+    if (data.size && data.size.w) setSize(data.size.w, data.size.h);
+    if (data.assistant && data.assistant.x != null) {
+      assistant.x = data.assistant.x; assistant.y = data.assistant.y;
+    }
+    restoreItems(data.items);
     items.forEach(updateItemLabel);
     rebuildLinked();
-    /* 第三十八轮：恢复上次场景时同步「情景」下拉框与右侧情景名 */
-    if (raw.sceneKey) syncSceneSelect(raw.sceneKey);
+    if (data.sceneKey) { curSceneKey = data.sceneKey; syncSceneSelect(data.sceneKey); }
+    saveScene();
+    return true;
   }
 
   /* 第三十八轮：当前生效的情景 key（供保存 / 恢复时同步下拉框） */
@@ -2695,6 +2756,123 @@
     saveScene();
     return true;
   }
+
+  /* ============================================================
+   * 第六十轮：画笔（Scratch pen）
+   *
+   * 画笔不是硬件，不参与接线 / 连接画面，轨迹画在 gPen 层。
+   * 状态对齐 Scratch 默认笔：颜色 66.66 / 饱和度 100 / 亮度 100 /
+   * 透明度 0 / 粗细 1（HSV 参数制，颜色 0~100 环形，其余 0~100 截断）。
+   * 画笔宿主：舞台上的「画笔」元素；没有时退回当前选中元素；
+   * 都没有时自动在舞台中央放一支画笔（保证「落笔」永远有效）。
+   * ============================================================ */
+  var penSt = {};   /* uid → { down, h, s, b, t, size } */
+
+  function penState(uid) {
+    if (!penSt[uid]) {
+      penSt[uid] = { down: false, h: 66.66, s: 100, b: 100, t: 0, size: 1 };
+    }
+    return penSt[uid];
+  }
+
+  /* HSV(Scratch 参数制) + 透明度 → rgba 字符串 */
+  function penRGBA(st) {
+    var h = ((st.h % 100) + 100) % 100 / 100 * 360;
+    var s = Math.max(0, Math.min(100, st.s)) / 100;
+    var v = Math.max(0, Math.min(100, st.b)) / 100;
+    var a = 1 - Math.max(0, Math.min(100, st.t)) / 100;
+    var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+    var r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+    return 'rgba(' + Math.round((r + m) * 255) + ',' + Math.round((g + m) * 255) +
+      ',' + Math.round((b + m) * 255) + ',' + a.toFixed(2) + ')';
+  }
+
+  /* 画笔宿主元素：画笔元素 > 当前选中元素 > 自动放一支画笔
+     noCreate=true 时只查询、不新建（卡片刷新每帧都调，不能有副作用） */
+  function penHolderUid(noCreate) {
+    var pen = items.filter(function (i) { return i.k === 'pen'; })[0];
+    if (pen) return pen.uid;
+    if (selUid && findItem(selUid)) return selUid;
+    if (!noCreate && LIB()['pen']) {
+      var it = addItem('pen', VW / 2, VH / 2, true);
+      if (it) return it.uid;
+    }
+    return null;
+  }
+
+  function penDownFn(uid) { uid = uid || penHolderUid(); if (uid) penState(uid).down = true; }
+  function penUpFn(uid) { uid = uid || penHolderUid(); if (uid) penState(uid).down = false; }
+
+  /* 取色器直接设色：#rrggbb → HSV 参数（透明度保持不变） */
+  function penSetColor(uid, hex) {
+    uid = uid || penHolderUid(); if (!uid) return;
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return;
+    var r = parseInt(m[1].substr(0, 2), 16) / 255,
+      g = parseInt(m[1].substr(2, 2), 16) / 255,
+      b = parseInt(m[1].substr(4, 2), 16) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    var h = 0;
+    if (d > 0) {
+      if (mx === r) h = 60 * (((g - b) / d) % 6);
+      else if (mx === g) h = 60 * ((b - r) / d + 2);
+      else h = 60 * ((r - g) / d + 4);
+    }
+    if (h < 0) h += 360;
+    var st = penState(uid);
+    st.h = h / 360 * 100;
+    st.s = mx === 0 ? 0 : d / mx * 100;
+    st.b = mx * 100;
+  }
+
+  /* 颜色参数（颜色/饱和度/亮度/透明度）：颜色 0~100 环形，其余截断 */
+  function penChangeParam(uid, param, dv) {
+    uid = uid || penHolderUid(); if (!uid) return;
+    penSetParam(uid, param, penParamOf(uid, param) + (Number(dv) || 0));
+  }
+  function penSetParam(uid, param, val) {
+    uid = uid || penHolderUid(); if (!uid) return;
+    var st = penState(uid), v = Number(val) || 0;
+    if (param === 'color') st.h = ((v % 100) + 100) % 100;        /* 环形 */
+    else if (param === 'saturation') st.s = Math.max(0, Math.min(100, v));
+    else if (param === 'brightness') st.b = Math.max(0, Math.min(100, v));
+    else if (param === 'transparency') st.t = Math.max(0, Math.min(100, v));
+  }
+  function penParamOf(uid, param) {
+    var st = penState(uid || penHolderUid() || '');
+    return param === 'color' ? st.h : param === 'saturation' ? st.s :
+      param === 'brightness' ? st.b : st.t;
+  }
+  function penChangeSize(uid, dv) {
+    uid = uid || penHolderUid(); if (!uid) return;
+    penSetSize(uid, penState(uid).size + (Number(dv) || 0));
+  }
+  function penSetSize(uid, v) {
+    uid = uid || penHolderUid(); if (!uid) return;
+    penState(uid).size = Math.max(1, Math.min(1200, Number(v) || 1));  /* Scratch: 1~1200 */
+  }
+
+  /* 图章：把元素当前外观按位盖章到画笔层 */
+  function penStamp(uid) {
+    uid = uid || penHolderUid(); if (!uid || !gPen) return;
+    var it = findItem(uid); if (!it) return;
+    var src = gItems.querySelector('[data-uid="' + uid + '"] .stage-item-body');
+    if (!src) return;
+    var g = el('g', {
+      transform: 'translate(' + it.x + ',' + it.y + ') rotate(' + (it.rot || 0) +
+        ') scale(' + (it.scale || 1) + ')',
+      opacity: it.opacity != null ? it.opacity : 1
+    }, gPen);
+    g.innerHTML = src.innerHTML;
+  }
+
+  /* 全部擦除：只清画笔层，不动元素 */
+  function penClear() { if (gPen) gPen.innerHTML = ''; }
+
+  /* 重置全部画笔状态（停止仿真 / 新建工程时调用；保留轨迹由积木决定） */
+  function penReset() { penSt = {}; penClear(); }
 
   /* ============================================================
    * 第三十轮：运动 / 外观模块的舞台能力
@@ -2999,6 +3177,44 @@
     addCustom: addCustom,
     /* 应用用户自建情景 */
     applyCustomScene: applyCustomScene,
+    /* ---------- 第六十轮：画笔（Scratch pen，非硬件） ---------- */
+    penDown: penDownFn,
+    penUp: penUpFn,
+    penSetColor: penSetColor,
+    penChangeParam: penChangeParam,
+    penSetParam: penSetParam,
+    penParamOf: penParamOf,
+    penChangeSize: penChangeSize,
+    penSetSize: penSetSize,
+    penStamp: penStamp,
+    penClear: penClear,
+    penReset: penReset,
+    penHolder: penHolderUid,
+    penColorOf: function (uid) { return penRGBA(penState(uid || penHolderUid() || '')); },
+    /* 第六十一轮：画笔当前状态（给虚拟仿真的画笔卡片用）
+       —— 颜色（rgba + hex）、粗细、是否落笔、HSV 四个参数。 */
+    penInfo: function (uid) {
+      var id = uid || penHolderUid(true) || '';
+      var st = penState(id);
+      var rgba = penRGBA(st);
+      /* rgba → #rrggbb（取色器色块要用 hex） */
+      var m = /rgba?\((\d+),(\d+),(\d+)/.exec(rgba);
+      var hex = '#000000';
+      if (m) {
+        hex = '#' + [m[1], m[2], m[3]].map(function (n) {
+          var s = parseInt(n, 10).toString(16);
+          return s.length < 2 ? '0' + s : s;
+        }).join('');
+      }
+      return {
+        down: !!st.down, size: st.size, hex: hex, rgba: rgba,
+        color: st.h, saturation: st.s, brightness: st.b, transparency: st.t,
+        holder: id ? nameOf(id) : ''
+      };
+    },
+    /* ---------- 第六十轮：舞台情景随工程文件保存 / 载入 ---------- */
+    serialize: serialize,
+    restore: restore,
     /* 小助手位置 */
     assistantPos: function () { return { x: assistant.x, y: assistant.y }; },
     setAssistantPos: function (x, y) {

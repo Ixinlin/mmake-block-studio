@@ -918,6 +918,8 @@ body.zk-adv-open .blocklyToolboxCategory.zk-adv-child .blocklyTreeRow{
   font-family:Consolas,monospace; margin-top:1px;
 }
 .wl-port-tag.none{background:#b8c0c9;}
+/* 第六十一轮：无线 / 板载 / 免连线设备用浅蓝标签，弱化「还没接好」的暗示 */
+.wl-port-tag.free{background:#7f9bbb; font-family:inherit; letter-spacing:.2px;}
 /* 设备两侧的连线控点：默认隐藏，选中/拉线时出现 */
 .wl-anchor{
   position:absolute; top:50%; width:13px; height:13px; margin-top:-6.5px;
@@ -1537,6 +1539,32 @@ input[type=range]{width:100%; accent-color:var(--c-primary);}
 .dev-card.wide .chip-btn{padding:5px 10px; font-size:12px;}
 .dev-card.wide .val{font-size:12px;}
 .dev-card.wide .val b{font-size:14px;}
+
+/* MQTT 宽卡片（第六十一轮）：状态/客户端一行两列，主题/消息一行两列，
+   真实服务器地址独占一行 —— 控制在一屏高度内，不用滚动。 */
+.mqtt-grid{display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; min-width:0;}
+.mqtt-grid > *{min-width:0;}
+.mqtt-field{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--c-text2); min-width:0;}
+.mqtt-field > input{
+  flex:1 1 auto; min-width:0; font-size:11px; padding:3px 6px;
+  border:1px solid var(--c-border); border-radius:6px; background:#fff;
+}
+.mqtt-field.wide{grid-column:1/-1;}
+.mqtt-field.wide > input{font-family:ui-monospace,Consolas,monospace;}
+
+/* 画笔卡片（第六十一轮）：左边一块实时色块，右边三行读数 */
+.pen-state{display:flex; align-items:center; gap:12px; min-width:0;}
+.pen-swatch{
+  flex:0 0 56px; width:56px; height:56px; border-radius:10px;
+  background:#0000ff; border:2px solid #fff;
+  box-shadow:0 0 0 1px #c8d0da, 0 2px 6px rgba(20,30,45,.18);
+  transition:background .15s ease;
+}
+.pen-readouts{display:flex; flex-direction:column; gap:2px; min-width:0;}
+.pen-readouts .val{white-space:nowrap;}
+.pen-readouts .val b{font-family:ui-monospace,Consolas,monospace;}
+/* 「跟随：xx」用更淡的小字，放进读数栏里，避免压到左边的画笔图标 */
+.pen-holder{font-size:10px; color:#9aa3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
 /* 天气卡片：两格大卡。六项气象数据 + 城市库 + 手动添加城市 */
 .wx-top{display:flex; flex-direction:column; gap:6px; min-width:0;}

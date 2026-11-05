@@ -126,6 +126,8 @@
     robot: '#7048e8',
     /* 第三十轮：舞台运动 / 外观（与板载蓝 #1e88e5、板载灯粉 #d63384 拉开差距） */
     stage_motion: '#1565c0', stage_looks: '#7b1fa2',
+    /* 第六十轮：画笔（对齐 Scratch 画笔扩展的绿松石色） */
+    pen: '#0fbd8c',
     /* 第三十五轮：循环积木（Blockly 内置循环块的统一色） */
     control_loop: '#c85f16',
     /* 第四十七轮：数学类自定义积木（zk_constrain / zk_str2num）的颜色。
@@ -745,8 +747,22 @@
   });
   def('zk_accel', {
     message0: '加速度 %1',
-    args0: [{ type: 'field_dropdown', name: 'AXIS', options: [['X 轴', 'x'], ['Y 轴', 'y'], ['Z 轴', 'z']] }],
-    output: 'Number', colour: C.onboard
+    args0: [{
+      type: 'field_dropdown', name: 'AXIS', options: [
+        ['X 轴', 'x'], ['Y 轴', 'y'], ['Z 轴', 'z'],
+        /* 第六十轮：湘教版示例里的「综合强度 STRENGTH」*/
+        ['综合强度', 'strength']
+      ]
+    }],
+    output: 'Number', colour: C.onboard,
+    tooltip: '三轴加速度：X/Y/Z 单轴加速度，或三个轴合成后的总强度（官方 STRENGTH）'
+  });
+  /* 第六十轮：正在摇晃？（第 8 课的 educore_accelerometer_shake） */
+  def('zk_is_shake', {
+    message0: '正在摇晃？',
+    args0: [], output: 'Boolean', colour: C.onboard,
+    tooltip: '检测掌控板是否正在被摇晃（加速度突变）\n' +
+      '仿真里点板上的「摇晃」按钮，或手动拖动虚拟板的加速度滑杆'
   });
   def('zk_tilt', {
     message0: '倾斜角 %1 （度）',
@@ -1847,12 +1863,21 @@
     baro: ['zk_pressure', 'zk_altitude'],
     button: ['zk_ext_btn'],
     fan: ['zk_fan', 'zk_fan_power'],
-    radio: ['zk_radio_group', 'zk_radio_send', 'zk_when_radio', 'zk_radio_msg'],
+    radio: ['zk_radio_group', 'zk_radio_send', 'zk_when_radio', 'zk_radio_msg', 'zk_radio_on'],
     wifi: ['zk_wifi_connect', 'zk_wifi_ok'],
     ntp: ['zk_ntp_sync', 'zk_time_now'],
-    mqtt: ['zk_mqtt_connect', 'zk_mqtt_pub', 'zk_when_mqtt', 'zk_mqtt_msg'],
+    mqtt: ['zk_mqtt_connect', 'zk_mqtt_pub', 'zk_when_mqtt', 'zk_mqtt_msg',
+      /* 第六十轮：SIoT 全套（湘教版八年级示例） */
+      'zk_siot_init', 'zk_mqtt_do_connect', 'zk_mqtt_ok', 'zk_mqtt_sub',
+      'zk_when_mqtt_topic', 'zk_when_mqtt_msg'],
     asr: ['zk_asr_text'],
     weather: ['zk_weather'],
+    /* 第六十轮：蓝牙（BLE HID，无线，无需接线） */
+    ble: ['zk_ble_hid', 'zk_ble_connected', 'zk_ble_key', 'zk_ble_mouse'],
+    /* 第六十轮：画笔（非硬件，只提供舞台绘制积木） */
+    pen: ['zk_when_run', 'zk_pen_clear', 'zk_pen_stamp', 'zk_pen_down', 'zk_pen_up',
+      'zk_pen_color_to', 'zk_pen_color_add', 'zk_pen_color_set',
+      'zk_pen_size_add', 'zk_pen_size_set'],
     expboard: []
   };
 
@@ -3083,6 +3108,294 @@
       self.getInput(k).connection.setShadowDom(
         Blockly.utils.xml.textToDom('<shadow type="math_number"><field name="NUM">' + n + '</field></shadow>'));
     });
+  });
+
+  /* ============================================================
+   * 第六十轮：画笔（Scratch pen 扩展）
+   *
+   * 依据：参考资料/scratch-editor-develop/packages/scratch-vm/src/
+   *       extensions/scratch3_pen/index.js
+   *   pen_clear / pen_stamp / pen_penDown / pen_penUp /
+   *   pen_setPenColorToColor / pen_changePenColorParamBy /
+   *   pen_setPenColorParamTo / pen_changePenSizeBy / pen_setPenSizeTo
+   *
+   * ⚠ 画笔不是硬件：不需要接线、不弹「硬件连接」画面、不占拓展板端口。
+   *   轨迹画在舞台的画笔层（背景之上、元素之下），由「▶ 运行」触发。
+   *   落笔后元素一移动就留痕；画笔宿主是舞台上的「画笔」元素。
+   * ============================================================ */
+
+  /* 舞台程序的入口（绿旗）。仿真里与「当掌控板启动」等价，
+     但语义上面向舞台：不依赖任何硬件。 */
+  def('zk_when_run', {
+    message0: '当点击运行时',
+    args0: [],
+    nextStatement: null, colour: C.event, hat: 'cap',
+    tooltip: '点击右上角「▶ 运行」后从这里开始执行\n' +
+      '画笔、舞台类程序用它当入口，不需要连接掌控板'
+  });
+
+  /* 颜色参数（与 Scratch 的 COLOR_PARAM 同名同义） */
+  var PEN_PARAM_OPTS = [
+    ['颜色', 'color'], ['饱和度', 'saturation'],
+    ['亮度', 'brightness'], ['透明度', 'transparency']
+  ];
+
+  def('zk_pen_clear', {
+    message0: '全部擦除',
+    args0: [], previousStatement: null, nextStatement: null, colour: C.pen,
+    tooltip: '清空舞台上的所有笔迹与图章（不影响舞台上的元素）'
+  });
+
+  def('zk_pen_stamp', {
+    message0: '图章',
+    args0: [], previousStatement: null, nextStatement: null, colour: C.pen,
+    tooltip: '把画笔当前的样子印一份在舞台上（像盖印章），之后移动不会带走它'
+  });
+
+  def('zk_pen_down', {
+    message0: '落笔',
+    args0: [], previousStatement: null, nextStatement: null, colour: C.pen,
+    tooltip: '落笔后，画笔元素一移动就会留下线条'
+  });
+
+  def('zk_pen_up', {
+    message0: '抬笔',
+    args0: [], previousStatement: null, nextStatement: null, colour: C.pen,
+    tooltip: '抬笔后移动画笔不再留下线条'
+  });
+
+  def('zk_pen_color_to', {
+    message0: '将笔的颜色设为 %1',
+    args0: [{ type: 'field_colour', name: 'COLOR', colour: '#0000ff' }],
+    previousStatement: null, nextStatement: null, colour: C.pen, inputsInline: true,
+    tooltip: '直接挑一个颜色当笔色（Scratch 里的「将笔的颜色设为」取色器）'
+  });
+
+  def('zk_pen_color_add', {
+    message0: '将笔的 %1 增加 %2',
+    args0: [
+      { type: 'field_dropdown', name: 'PARAM', options: PEN_PARAM_OPTS },
+      { type: 'input_value', name: 'N', check: 'Number' }
+    ],
+    previousStatement: null, nextStatement: null, colour: C.pen, inputsInline: true,
+    tooltip: '在当前值上增减：颜色 0~100 是色环（绕一圈回到原色），\n' +
+      '饱和度 / 亮度 / 透明度 0~100，超出范围自动截断'
+  });
+
+  def('zk_pen_color_set', {
+    message0: '将笔的 %1 设为 %2',
+    args0: [
+      { type: 'field_dropdown', name: 'PARAM', options: PEN_PARAM_OPTS },
+      { type: 'input_value', name: 'N', check: 'Number' }
+    ],
+    previousStatement: null, nextStatement: null, colour: C.pen, inputsInline: true,
+    tooltip: '直接把颜色 / 饱和度 / 亮度 / 透明度设成指定值（0~100）'
+  });
+
+  def('zk_pen_size_add', {
+    message0: '将笔的粗细增加 %1',
+    args0: [{ type: 'input_value', name: 'N', check: 'Number' }],
+    previousStatement: null, nextStatement: null, colour: C.pen, inputsInline: true,
+    tooltip: '笔迹粗细的增减（最小 1，最大 1200）'
+  });
+
+  def('zk_pen_size_set', {
+    message0: '将笔的粗细设为 %1',
+    args0: [{ type: 'input_value', name: 'N', check: 'Number' }],
+    previousStatement: null, nextStatement: null, colour: C.pen, inputsInline: true,
+    tooltip: '直接设定笔迹粗细（1~1200，默认 1）'
+  });
+
+  /* ============================================================
+   * 第六十轮：湘教版（八年级）示例补齐的积木
+   *   等待直到 / 无线广播开关 / 输入框问答 / SIoT-MQTT 全套
+   * ============================================================ */
+
+  /* 「等待直到」：官方 hunan_dengdaizhidao。
+     注意不能复用 controls_if（口名 IF0、语义是判断），
+     也不能用 controls_whileUntil（多一个空的执行槽，学生会困惑）。 */
+  def('zk_wait_until', {
+    message0: '等待直到 %1',
+    args0: [{ type: 'input_value', name: 'BOOL', check: 'Boolean' }],
+    previousStatement: null, nextStatement: null, colour: C.control, inputsInline: true,
+    tooltip: '卡在这里反复检查，条件成立后才继续往下执行\n' +
+      '常用：等待直到 WiFi 已连接 / MQTT 已连接'
+  });
+
+  /* 无线广播开关：官方 hunan_mpython_radio_on_off */
+  def('zk_radio_on', {
+    message0: '无线广播 %1',
+    args0: [{
+      type: 'field_dropdown', name: 'ON', options: [['开启', 'on'], ['关闭', 'off']]
+    }],
+    previousStatement: null, nextStatement: null, colour: C.net, inputsInline: true,
+    tooltip: 'radio.on() / radio.off()：使用无线广播收发前先开启'
+  });
+
+  /* 输入框：官方 hunan_input（提问）+ hunan_input_res（答案） */
+  def('zk_ask', {
+    message0: '询问 %1 并等待回答',
+    args0: [{ type: 'input_value', name: 'V' }],
+    previousStatement: null, nextStatement: null, colour: C.control, inputsInline: true,
+    tooltip: '在屏幕上提出问题，把用户输入的内容存起来（用「输入的答案」读取）'
+  });
+
+  def('zk_answer', {
+    message0: '输入的答案',
+    args0: [], output: 'String', colour: C.control,
+    tooltip: '上一次「询问…并等待回答」得到的文字'
+  });
+
+  /* ---- SIoT / MQTT（掌控板 3.0 官方 iot 接口） ----
+     参考：https://mpython-esp32s3-doc.readthedocs.io/zh-cn/latest/3_examples/advance/iot/mqtt.html
+       _siot = iot(client_id, server, user=…, password=…)
+       _siot.set_callback(cb) / _siot.connect() / _siot.getsubscribe(topic) /
+       _siot.publish(topic, msg) / _siot.loop()
+     WiFi 与 MQTT 都是无线协议：不接线、不弹连接画面。 */
+  def('zk_siot_init', {
+    message0: 'SIoT 初始化 客户端ID %1 服务器 %2 用户名 %3 密码 %4',
+    args0: [
+      { type: 'input_value', name: 'CLIENT_ID' },
+      { type: 'input_value', name: 'SERVER' },
+      { type: 'input_value', name: 'IOT_USER' },
+      { type: 'input_value', name: 'IOT_PWD' }
+    ],
+    previousStatement: null, nextStatement: null, colour: C.net,
+    tooltip: '创建 IoT 客户端：客户端 ID / 服务器地址 / 用户名 / 密码\n' +
+      '示例：userA / 192.168.1.150 / siot / zhangkong'
+  });
+
+  def('zk_mqtt_do_connect', {
+    message0: '连接 MQTT 服务器',
+    args0: [], previousStatement: null, nextStatement: null, colour: C.net,
+    tooltip: 'IoT 客户端发起连接（_siot.connect()），连接结果用「MQTT 已连接？」判断'
+  });
+
+  def('zk_mqtt_ok', {
+    message0: 'MQTT 已连接？',
+    args0: [], output: 'Boolean', colour: C.net,
+    tooltip: 'IoT 客户端是否已经连上服务器（与「WiFi 已连接？」是两件事）'
+  });
+
+  /* 订阅主题（1~3 个，mutation 与官方同构）
+     官方 XML：<mutation items="1"/> + <value name="ADD0">… */
+  function rebuildSub(block, n) {
+    n = Math.max(1, Math.min(3, Number(n) || 1));
+    while (block.inputList.length) block.removeInput(block.inputList[0].name);
+    block.appendDummyInput('HEAD').appendField('订阅 MQTT 主题');
+    for (var i = 0; i < n; i++) {
+      block.appendValueInput('ADD' + i);
+    }
+    block.appendDummyInput('TAIL');
+    block.setInputsInline(true);
+    block.subN_ = n;
+  }
+  Blockly.Blocks['zk_mqtt_sub'] = {
+    init: function () {
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour(C.net);
+      rebuildSub(this, 1);
+      this.setTooltip('订阅一个或多个主题，最多 3 个（右击可改主题个数）');
+    },
+    mutationToDom: function () {
+      var el = Blockly.utils.xml.createElement('mutation');
+      el.setAttribute('items', this.subN_ || 1);
+      return el;
+    },
+    domToMutation: function (el) {
+      rebuildSub(this, el.getAttribute('items'));
+    },
+    customContextMenu: function (options) {
+      var self = this;
+      [1, 2, 3].forEach(function (n) {
+        options.push({
+          text: '订阅 ' + n + ' 个主题',
+          enabled: n !== (self.subN_ || 1),
+          callback: function () {
+            self.subN_ = n;
+            rebuildSub(self, n);
+            if (self.workspace) self.workspace.fireChangeListener(new Blockly.Events.BlockChange(
+              self, 'mutation', null, '', String(n)));
+          }
+        });
+      });
+    }
+  };
+
+  /* 当 MQTT 主题（自由文本）收到消息时 —— 对应官方 hunan_mpython3_siot_receive_from，
+     官方的 TOPIC 是 field（不是值口），所以单独做一块 field_input 版。 */
+  def('zk_when_mqtt_topic', {
+    message0: '当 MQTT 主题 %1 收到消息时',
+    args0: [{ type: 'field_input', name: 'TOPIC', text: '共享单车/方向' }],
+    nextStatement: null, colour: C.net, hat: 'cap', inputsInline: true,
+    tooltip: '订阅并等待：主题名可自己输入（如 求助/1）'
+  });
+
+  /* 当主题收到「指定内容」的消息时 —— 官方 hunan_mpython3_siot_receive_msg */
+  def('zk_when_mqtt_msg', {
+    message0: '当主题 %1 收到消息 %2 时',
+    args0: [
+      { type: 'field_input', name: 'TOPIC', text: '灾害/滑坡' },
+      { type: 'input_value', name: 'MSG' }
+    ],
+    nextStatement: null, colour: C.net, hat: 'cap', inputsInline: true,
+    tooltip: '只有收到的内容与「消息」完全一致时才执行下面的积木'
+  });
+
+  /* ============================================================
+   * 第六十轮：蓝牙（BLE HID，掌控板 3.0 educore）
+   *
+   * 依据：参考资料/mPython图形化mxml示例程序/第8课巧用蓝牙做工具
+   *   educore_ble_hid(name) / educore_ble_hid_connected /
+   *   educore_ble_hid_keyboard_send(keyboard)
+   * Python API：from educore import hid, keycode
+   *   ble = hid(name='mpy_hid'); ble.isconnected();
+   *   ble.keyboard_send(keycode.SPACE); ble.mouse_key(1)
+   *
+   * 蓝牙为无线通信：不接线、不弹「硬件连接」画面。
+   * ============================================================ */
+  def('zk_ble_hid', {
+    message0: '开启蓝牙键盘 名称 %1',
+    args0: [{ type: 'input_value', name: 'NAME' }],
+    previousStatement: null, nextStatement: null, colour: C.net, inputsInline: true,
+    tooltip: '把掌控板模拟成蓝牙键盘，电脑/手机蓝牙里会出现这个名字\n' +
+      '开启后可在设备卡片里模拟「已连接」'
+  });
+
+  def('zk_ble_connected', {
+    message0: '蓝牙已连接？',
+    args0: [], output: 'Boolean', colour: C.net,
+    tooltip: '电脑 / 手机是否已经连上这块掌控板（isconnected()）'
+  });
+
+  /* 官方 keycode 全表里挑出课堂常用的键（值字符串与固件一致） */
+  var BLE_KEYS = [
+    ['空格', 'SPACE'], ['回车', 'ENTER'], ['退格', 'BACKSPACE'], ['Esc', 'ESCAPE'],
+    ['Tab', 'TAB'], ['方向上', 'UP'], ['方向下', 'DOWN'], ['方向左', 'LEFT'], ['方向右', 'RIGHT'],
+    ['A', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'], ['E', 'E'], ['F', 'F'],
+    ['G', 'G'], ['H', 'H'], ['I', 'I'], ['J', 'J'], ['K', 'K'], ['L', 'L'], ['M', 'M'],
+    ['N', 'N'], ['O', 'O'], ['P', 'P'], ['Q', 'Q'], ['R', 'R'], ['S', 'S'], ['T', 'T'],
+    ['U', 'U'], ['V', 'V'], ['W', 'W'], ['X', 'X'], ['Y', 'Y'], ['Z', 'Z'],
+    ['数字 1', '_1'], ['数字 2', '_2'], ['数字 3', '_3'], ['数字 0', '_0'],
+    ['F1', 'F1'], ['F2', 'F2'], ['F5', 'F5'], ['F12', 'F12'],
+    ['Ctrl', 'CTRL'], ['Shift', 'SHIFT'], ['Alt', 'ALT']
+  ];
+
+  def('zk_ble_key', {
+    message0: '蓝牙发送按键 %1',
+    args0: [{ type: 'field_dropdown', name: 'KEY', options: BLE_KEYS }],
+    previousStatement: null, nextStatement: null, colour: C.net, inputsInline: true,
+    tooltip: '向已连接的电脑/手机发送一次按键（keyboard_send）'
+  });
+
+  def('zk_ble_mouse', {
+    message0: '蓝牙鼠标 %1',
+    args0: [{
+      type: 'field_dropdown', name: 'ACT', options: [['单击', '1'], ['双击', '2']]
+    }],
+    previousStatement: null, nextStatement: null, colour: C.net, inputsInline: true,
+    tooltip: '把掌控板当蓝牙鼠标用（mouse_key）'
   });
 
 })(window);

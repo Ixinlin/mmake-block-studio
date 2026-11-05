@@ -352,14 +352,19 @@
     'hunan_mpython_bluebit_ledong_speech_recognition_result': 'zk_speech2_result',
     'hunan_string_to_number': 'zk_str2num',
     /* ---------- 八年级物联网 / 引脚 / 数学 / 音乐补充 ---------- */
-    'hunan_mpython3_siot_receive_from': 'zk_when_mqtt',
+    /* 官方 TOPIC 是 field（自由文本），本项目 zk_when_mqtt 是值口，
+       类型不兼容 → 单独的 field_input 版帽子 */
+    'hunan_mpython3_siot_receive_from': 'zk_when_mqtt_topic',
     'hunan_mpython_siot_message': 'zk_mqtt_msg',
     'hunan_python_conn_read_analog': 'zk_pin_ain',
     'hunan_python_conn_read_digital': 'zk_pin_din',
     'hunan_python_conn_set_digital': 'zk_pin_dout',
     'hunan_mpython_conn_pin_get_analog': 'math_number',
     'hunan_mpython_conn_pin_get_digital': 'math_number',
-    'hunan_mpython_music_tone_tempo': 'zk_music_tempo',
+    /* 官方是「播放音符」：value musical_note（shadow 带 note/tempo 两个 field），
+       以前映成 zk_music_tempo（设置 BPM），音符与节拍全丢。
+       现映成 zk_note，并把 shadow 上的 field 提升为块级字段（见 SHADOW_LIFT） */
+    'hunan_mpython_music_tone_tempo': 'zk_note',
     'hunan_mpython_music_musical_note': 'math_number',
     'hunan_mpython_bluebit_ledong_speech_recognition_any': 'zk_speech2_result',
     'hunan_math_abs': 'math_single',     /* Blockly 内置：绝对值 */
@@ -371,8 +376,8 @@
     'hunan_seniverse_weather_custom_init': 'zk_weather',
     'hunan_mpython_get_seniverse_weather_info2': 'zk_weather',
     'china_city': 'text',
-    'hunan_input': 'zk_print',
-    'hunan_input_res': 'text',
+    'hunan_input': 'zk_ask',
+    'hunan_input_res': 'zk_answer',
     /* 拓展设备 */
     /* 第四十五轮：官方 bluebit_ultrasonic 是**值积木**（放在 value 口里），
        对应本项目的 zk_ultra（超声波测距）；
@@ -381,7 +386,9 @@
     'hunan_mpython_bluebit_ultrasonic_init': 'zk_ultra_init',
     'hunan_mpython_bluebit_get_color': 'zk_tracker_read',
     'hunan_mpython_dh11_hum_tem': 'zk_dht_measure',
-    'hunan_microbit_music_play_built_in': 'zk_music_play',
+    /* 官方是「播放内置乐曲」（melody / REPEAT_MODE），
+       本项目对应块是 zk_music_melody（内置旋律），不是素材库的 zk_music_play */
+    'hunan_microbit_music_play_built_in': 'zk_music_melody',
     'hunan_microbit_music_stop': 'zk_music_stop',
     'hunan_mpython_music_pitch': 'zk_music_tempo',
     /* 灯带 / 拓展板 */
@@ -398,13 +405,16 @@
        这里映射到专门为官方 mxml 准备的语句版积木。 */
     'hunan_mpython3_radio_recv_msg': 'zk_radio_msg_do',
     'hunan_mpython_radio_channel': 'zk_radio_group',
-    'hunan_mpython_radio_on_off': 'zk_radio_send',
+    'hunan_mpython_radio_on_off': 'zk_radio_on',
     'hunan_mpython_init_wifi': 'zk_wifi_connect',
     'hunan_mpython_wifi_isconnected': 'zk_wifi_ok',
     'hunan_mpython_siot_publish_to': 'zk_mqtt_pub',
     /* 同理：官方 MQTT 消息也是语句型 */
-    'hunan_mpython3_siot_receive_msg': 'zk_mqtt_msg_do',
-    'hunan_mpython_siot_init': 'zk_mqtt_connect',
+    /* 官方语义：主题收到「指定内容」的消息才执行（field TOPIC + value msg） */
+    'hunan_mpython3_siot_receive_msg': 'zk_when_mqtt_msg',
+    /* 官方 4 个参数口（CLIENT_ID / SERVER / IOT_USER / IOT_PWD），
+       与本项目 zk_siot_init 口名完全一致，零映射 */
+    'hunan_mpython_siot_init': 'zk_siot_init',
     'hunan_mpython_ntp_server': 'zk_ntp_sync',
     'hunan_mpython3_ntptime_settime': 'zk_ntp_sync',
     /* 点阵图片 */
@@ -433,11 +443,31 @@
     'hunan_mpython_init': 'zk_print',
     /* 物联网 */
     'hunan_mpython3_init_wifi': 'zk_wifi_connect',
-    'hunan_mpython_siot_connect': 'zk_mqtt_connect',
-    'hunan_mpython_siot_isconnected': 'zk_wifi_ok',
-    'hunan_mpython_siot_subscribe': 'zk_mqtt_msg_do',
+    'hunan_mpython_siot_connect': 'zk_mqtt_do_connect',
+    'hunan_mpython_siot_isconnected': 'zk_mqtt_ok',
+    /* 订阅主题（mutation items=1~3，口 ADD0/ADD1/ADD2） */
+    'hunan_mpython_siot_subscribe': 'zk_mqtt_sub',
     /* 等待直到（等价「重复执行直到」） */
-    'hunan_dengdaizhidao': 'controls_if'
+    /* 第六十轮：官方「等待直到」是语句块 + BOOL 值口，
+       以前映成 controls_if（口名 IF0，语义是判断）——
+       条件子积木被当多余口删掉，且每份联网示例都用到它（113 处）。 */
+    'hunan_dengdaizhidao': 'zk_wait_until',
+    /* ============ 第六十轮：educore 系列（掌控板 3.0 新积木） ============
+       第 8 课「巧用蓝牙做工具」用的是 educore_* 命名：
+         educore_ble_hid / educore_ble_hid_connected /
+         educore_ble_hid_keyboard_send / educore_oled_print /
+         educore_accelerometer_shake
+       以前一个都没收录，打开这类 mxml 时整块都是「未知积木」。 */
+    'educore_ble_hid': 'zk_ble_hid',
+    'educore_ble_hid_connected': 'zk_ble_connected',
+    'educore_ble_hid_keyboard_send': 'zk_ble_key',
+    'educore_oled_print': 'zk_print',
+    'educore_accelerometer_shake': 'zk_is_shake',
+    /* 循环：官方永远循环叫 controls_repeat_forever */
+    'controls_repeat_forever': 'controls_forever',
+    /* 3.0 的显示 / 传感器别名 */
+    'educore_oled_show': 'zk_oled_show',
+    'educore_oled_clear': 'zk_oled_clear'
   };
 
   /* 合并后的完整映射表：hunan_* 与 mpython_* 共用一张。
@@ -523,11 +553,173 @@
     return m;
   }
 
+  /* 上一次 remapTypes 修好了几个「被旧版存坏的屏幕刷新」积木 */
+  var _lastRepair = 0;
+
+  function hasValueChild(el) {
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var c = el.childNodes[i];
+      if (c.nodeType === 1 && c.nodeName === 'value') return true;
+    }
+    return false;
+  }
+
+  function hasFieldChild(el, name) {
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var c = el.childNodes[i];
+      if (c.nodeType === 1 && c.nodeName === 'field' && c.getAttribute('name') === name) return true;
+    }
+    return false;
+  }
+
+  function hasValueChildNamed(el, name) {
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var c = el.childNodes[i];
+      if (c.nodeType === 1 && c.nodeName === 'value' && c.getAttribute('name') === name) return true;
+    }
+    return false;
+  }
+
+  /* ============================================================
+   * 第五十九轮：一个官方类型，对应本项目的两种积木
+   *
+   * 【踩坑】mPython 官方有几个积木「身兼两职」，靠参数区分；
+   *   而 TYPE_ALIAS 一张表只能映到一个，于是导进来就全变成其中一种。
+   *
+   *   典型（用户报障）：hunan_mpython_dh11_hum_tem
+   *     · 不带 hum_tem 字段 → 「温湿度传感器：测量一次」（语句）
+   *     · 带 hum_tem=t/h   → 「温湿度传感器的 温度（℃）/ 湿度（%）」（取值）
+   *   以前一律映成「测量一次」，于是取值块打开就变成了语句块，
+   *   学生以为积木被换掉了。
+   *
+   *   同类还有彩灯：hunan_mpython_set_rgb_list_number
+   *     · 有 R/G/B 三个数值口 → 「彩灯 0 红 .. 绿 .. 蓝 ..」
+   *     · 只有字段 N       → 「设置彩灯 0 为 [取色器]」
+   *   以前一律映成取色器版，R/G/B 三个数被当多余口删掉、颜色回退到默认红。
+   *
+   *   这里按「元素实际带了什么」来分流，比查表准。
+   * ============================================================ */
+  var SPLIT_TYPES = {
+    'hunan_mpython_dh11_hum_tem': function (el) {
+      return hasFieldChild(el, 'hum_tem') ? 'zk_dht_val' : 'zk_dht_measure';
+    },
+    'hunan_mpython_set_rgb_list_number': function (el) {
+      return hasValueChildNamed(el, 'R') ? 'zk_rgb_rgb' : 'zk_rgb_one';
+    }
+  };
+
+  /* ============================================================
+   * 第六十轮：把 shadow 上的字段「提升」为块级字段
+   *
+   * 官方有几块积木把下拉框放在 value 里的 shadow 上：
+   *   hunan_mpython_music_tone_tempo
+   *     <value name="musical_note"><shadow type="…musical_note">
+   *       <field name="note">F5</field><field name="tempo">4</field></shadow></value>
+   *   hunan_python_conn_read_analog
+   *     <value name="allPin"><shadow type="…pin_get_analog">
+   *       <field name="pin">0</field></shadow></value>
+   *   hunan_mpython_bluebit_ATGM336H_init
+   *     <value name="tx">…<field name="uart_tx_pin">16</field>…</value>
+   *
+   * 而本项目的对应积木（zk_note / zk_pin_ain / zk_gps_init）用的是
+   * **块级 field**。只改名不改结构的话，这些值会跟着 value 一起被删掉
+   * —— 音符变成 C4、引脚变成默认值，学生看不出哪里错了。
+   *
+   * 这里在改完类型后，把 shadow 里的 field 提到块上，再删掉那个 value。
+   * 只有当 value 里**只有 shadow**（学生没自己接积木）时才提升，
+   * 接了真实积木的保持原样，交给后面的口名对齐去处理。
+   * ============================================================ */
+  var SHADOW_LIFT = {
+    hunan_mpython_music_tone_tempo: [
+      { v: 'musical_note', map: { note: 'NOTE', tempo: 'BEAT' } }
+    ],
+    hunan_python_conn_read_analog: [
+      { v: 'allPin', map: { pin: 'PIN' } }
+    ],
+    hunan_mpython_bluebit_ATGM336H_init: [
+      { v: 'tx', map: { uart_tx_pin: 'TX' } },
+      { v: 'rx', map: { uart_rx_pin: 'RX' } }
+    ]
+  };
+
+  /* ============================================================
+   * 第六十轮：官方「拼接文本」→ Blockly text_join 的结构转换
+   *
+   * 官方 hunan_text_join 固定两个值口 TEXT1 / TEXT2；
+   * Blockly 的 text_join 用的是 ADD0 / ADD1 + <mutation items="2">。
+   * 只改类型不改口名的话，两个 TEXT 口会被当「多余口」删掉，
+   * 界面上剩下一个**空的**拼接积木 —— 文字全丢，而且看不出来。
+   * （湘教版八年级 18 处用到它）
+   * ============================================================ */
+  var VALUE_RENAME = {
+    hunan_text_join: { TEXT1: 'ADD0', TEXT2: 'ADD1', TEXT3: 'ADD2' }
+  };
+
+  function fixTextJoin(el, fromType) {
+    var map = VALUE_RENAME[fromType];
+    if (!map) return;
+    var n = 0, i, c;
+    for (i = 0; i < el.childNodes.length; i++) {
+      c = el.childNodes[i];
+      if (c.nodeType !== 1 || c.nodeName !== 'value') continue;
+      var nm = c.getAttribute('name');
+      if (map[nm]) c.setAttribute('name', map[nm]);
+      n++;
+    }
+    /* mutation 必须是第一个子节点：Blockly 先建口再塞值 */
+    var doc = el.ownerDocument;
+    var mut = doc.createElement('mutation');
+    mut.setAttribute('items', String(Math.max(2, n)));
+    el.insertBefore(mut, el.firstChild);
+  }
+
+  function liftShadowFields(el, fromType) {
+    var rules = SHADOW_LIFT[fromType];
+    if (!rules) return;
+    var doc = el.ownerDocument;
+    rules.forEach(function (rule) {
+      var val = null, i, c;
+      /* ⚠ value 的口名可能已经被 renameChildren 改成本项目的口名
+         （EXPORT_MAP 里的 v 映射会反向生效，如 tx → TX），
+         所以「官方名」和「本项目名」都要认。 */
+      var names = [rule.v];
+      /* 提升后的目标字段名也要认（tx → TX 这种改名） */
+      Object.keys(rule.map).forEach(function (k) { names.push(rule.map[k]); });
+      for (i = 0; i < el.childNodes.length; i++) {
+        c = el.childNodes[i];
+        if (c.nodeType === 1 && c.nodeName === 'value' &&
+          names.indexOf(c.getAttribute('name')) >= 0) { val = c; break; }
+      }
+      if (!val) return;
+      /* value 里除 shadow 外还有真实积木 → 不提升，原样保留 */
+      var shadow = null, hasBlock = false;
+      for (i = 0; i < val.childNodes.length; i++) {
+        c = val.childNodes[i];
+        if (c.nodeType !== 1) continue;
+        if (c.nodeName === 'shadow') shadow = c;
+        if (c.nodeName === 'block') hasBlock = true;
+      }
+      if (!shadow || hasBlock) return;
+      for (i = 0; i < shadow.childNodes.length; i++) {
+        c = shadow.childNodes[i];
+        if (c.nodeType !== 1 || c.nodeName !== 'field') continue;
+        var to = rule.map[c.getAttribute('name')];
+        if (!to) continue;
+        var nf = doc.createElement('field');
+        nf.setAttribute('name', to);
+        nf.textContent = c.textContent;
+        el.appendChild(nf);
+      }
+      el.removeChild(val);
+    });
+  }
+
   function remapTypes(xmlText) {
     var txt = remapMutations(String(xmlText || ''));
     var doc = parseXml(txt);
     /* 解析失败就退回纯文本替换，至少还能改类型 */
     if (!doc) {
+      _lastRepair = 0;
       return txt.replace(
         /<(block|shadow)\s+type="([^"]+)"/g,
         function (all, tag, type) {
@@ -538,22 +730,46 @@
 
     var els = doc.getElementsByTagName('*');
     var REV = revNames();
+    var repaired = 0;
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
       var tag = el.nodeName;
       if (tag !== 'block' && tag !== 'shadow') continue;
       var t = el.getAttribute('type');
+
+      /* 第五十八轮：「屏幕刷新」抢救
+         旧版把 zk_oled_show 导出成 hunan_mpython_display_DispChar，
+         于是「刷新屏幕显示」被存成了一个没有任何输入口的「屏幕显示」块，
+         再打开就变成默认的「你好，掌控板 / X 0 / Y 0」。
+         判据：DispChar 连一个 value 口都没有 —— 正常的显示文字块不可能这样。
+         直接改回 zk_oled_show，学生打开工程就能看到原本的积木。 */
+      if ((t === 'hunan_mpython_display_DispChar' || t === 'zk_oled_text')
+        && !hasValueChild(el)) {
+        el.setAttribute('type', 'zk_oled_show');
+        t = 'zk_oled_show';
+        repaired++;
+      }
+
       var to = TYPE_ALIAS[t];
+      /* 第五十九轮：一个官方类型对应两种本项目积木时，按元素实际内容分流
+         （温湿度传感器的「测量一次 / 取值」、彩灯的「取色器 / RGB 三数值」） */
+      var split = SPLIT_TYPES[t];
+      if (split) to = split(el);
       /* 先用「原始官方类型」查逆向表翻输入名，再改类型。
          顺序不能反：改了类型就找不到对应的名字表了。 */
       var r = REV[t] || REV[to];
       if (r) renameChildren(el, r);
+      /* 第六十轮：官方多口积木的口名结构转换（拼接文本） */
+      fixTextJoin(el, t);
       if (to) el.setAttribute('type', to);
+      /* 第六十轮：shadow 字段提升（音符 / 模拟引脚 / GPS 串口引脚） */
+      liftShadowFields(el, t);
       /* 第四十五轮：字段值规范化 + 输入口名对齐
          （必须在改完类型之后，因为要按本项目类型来对齐口名） */
       normalizeFieldValues(el, to || t);
       alignInputNames(el, to || t);
     }
+    _lastRepair = repaired;
     return serDoc(doc);
   }
 
@@ -572,6 +788,16 @@
   var FIELD_VALUE_FIX = {
     /* 按键：A / B */
     BTN: { a: 'A', b: 'B', A: 'A', B: 'B' },
+    /* 第六十轮：加速度轴（官方全大写，且多一个 STRENGTH） */
+    AXIS: { X: 'x', Y: 'y', Z: 'z', STRENGTH: 'strength', x: 'x', y: 'y', z: 'z' },
+    /* 第六十轮：内置乐曲的循环方式（官方 PLAY_ONCE / LOOP_BACKGROUND） */
+    MODE: { PLAY_ONCE: 'once', LOOP_BACKGROUND: 'bgLoop', once: 'once', loop: 'loop',
+      bgOnce: 'bgOnce', bgLoop: 'bgLoop' },
+    /* 第六十轮：GPS 数据项（官方直接写 GNSS.xxx 表达式） */
+    K: {
+      'GNSS.longitude+GNSS.E_W': 'lon', 'GNSS.latitude+GNSS.N_S': 'lat',
+      'GNSS.longitude': 'lon', 'GNSS.latitude': 'lat'
+    },
     /* 按键动作：按下 / 松开 */
     ACTION: { pressed: 'PRESSED', released: 'RELEASED', up: 'PRESSED', down: 'RELEASED' },
     /* 触摸引脚：官方小写，本项目大写 */
@@ -637,26 +863,93 @@
 
   /* 官方口名 → 本项目口名（按积木类型区分） */
   var INPUT_NAME_FIX = {
+    /* 第六十轮：官方的「永远循环」语句槽叫 DO，本项目的 controls_forever
+       叫 SUBSTACK。不改名的话，整个循环体会被当「多余口」整段删掉 ——
+       湘教版八年级的示例几乎全在 hunan_loop 里，等于打开就剩一个空循环。 */
+    controls_forever: { DO: 'SUBSTACK', SUBSTACK: 'SUBSTACK' },
+    /* 同理：官方 if 的语句槽 DO0/ELSE 与 Blockly 内置一致，不用改；
+       但 eduCore 的显示块口名是 txt（已在 zk_print 里登记） */
     /* 舵机：官方 servo_angle → 本项目 A */
     zk_servo: { servo_angle: 'A', A: 'A', pwm_pin: null },
     /* 打印 / 输入框：官方 INPUT0 → 本项目 V */
-    zk_print: { INPUT0: 'V', text: 'V', V: 'V' },
+    zk_print: { INPUT0: 'V', text: 'V', V: 'V', txt: 'V' },
     /* 类型转换：官方 INPUT0 → 本项目 S（要转换的值） */
     zk_str2num: { INPUT0: 'S', S: 'S', text: 'S' }
   };
 
   /* 官方字段名 → 本项目字段名（按积木类型区分） */
   var FIELD_NAME_FIX = {
+    /* 第六十轮：官方「显示在第 N 行」的 shadow（hunan_mpython_4_lines）
+       映射成 math_number 后，字段名要从 line 改成 NUM，否则行号丢失、
+       整块变成空数字，屏幕显示永远停在第 1 行。 */
+    math_number: { line: 'NUM', NUM: 'NUM' },
     /* 类型转换：官方 TYPE0（转成什么类型）→ 本项目 TYPE */
     zk_str2num: { TYPE0: 'TYPE', TYPE: 'TYPE' }
   };
 
   /* 把某个积木上的 value / statement 口名对齐，并删掉对不上的 */
+  /* ============================================================
+   * 第五十八轮：带 mutation 的积木，口名要以 mutation 为准
+   *
+   * 【踩坑】knownInputs() 是「新建一个默认块、看它有哪些口」。
+   *   但 controls_if 的默认块是没有「否则」分支的（else="0"），
+   *   于是 knownInputs('controls_if') 只有 IF0 / DO0 ——
+   *   alignInputNames() 的通用兜底一看「ELSE 不在列表里」，
+   *   就把整个 <statement name="ELSE"> 删掉了。
+   *   结果：所有写在「否则」分支里的积木，一打开工程就凭空消失。
+   *
+   *   典型现象（自动孵蛋箱）：
+   *     「加热元件 关闭」和「屏幕显示 关闭加热元件」两块打不开，
+   *     因为它们都在 if/else 的 else 分支里。
+   *
+   * 【怎么改】先看这个元素有没有 <mutation>；有就按 mutation 算真实口名。
+   *   认不出的 mutation 一律返回 SKIP（不删任何口），
+   *   宁可多留一个口让 Blockly 自己忽略，也不能删掉学生的积木。
+   * ============================================================ */
+  var MUTATION_SKIP = 'SKIP';
+
+  function mutationInputs(el) {
+    var mut = null;
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var c = el.childNodes[i];
+      if (c.nodeType === 1 && c.nodeName === 'mutation') { mut = c; break; }
+    }
+    if (!mut) return null;                       /* 没有 mutation，走默认逻辑 */
+
+    var type = el.getAttribute('type');
+    var n, out = [];
+
+    /* if / else if / else —— mutation 形如 elseif="2" else="1"
+       （else 有的写法是 "true"，两种都得认，否则又是一次丢分支） */
+    if (type === 'controls_if') {
+      var elseif = parseInt(mut.getAttribute('elseif') || '0', 10);
+      if (isNaN(elseif) || elseif < 0) elseif = 0;
+      for (n = 0; n <= elseif; n++) { out.push('IF' + n); out.push('DO' + n); }
+      var els = String(mut.getAttribute('else') || '0').toLowerCase();
+      if (els === '1' || els === 'true' || els === 'yes') out.push('ELSE');
+      return out;
+    }
+
+    /* 文本拼接 / 列表构造 —— mutation 形如 items="3" */
+    if (type === 'text_join' || type === 'lists_create_with') {
+      var items = parseInt(mut.getAttribute('items') || '2', 10);
+      if (isNaN(items) || items < 1) items = 2;
+      for (n = 0; n < items; n++) out.push('ADD' + n);
+      return out;
+    }
+
+    /* 其它 mutation（自定义函数、动态口……）口名算不准，
+       一律不删，交给 Blockly 自己处理 */
+    return MUTATION_SKIP;
+  }
+
   function alignInputNames(el, type) {
     var fix = INPUT_NAME_FIX[type] || null;
 
-    /* 本积木真实拥有的口名（value 口 + statement 口） */
-    var known = knownInputs(type);
+    /* 本积木真实拥有的口名（value 口 + statement 口）
+       带 mutation 的积木以 mutation 为准，见上面的说明 */
+    var mutNames = mutationInputs(el);
+    var known = mutNames === MUTATION_SKIP ? null : (mutNames || knownInputs(type));
 
     for (var j = el.childNodes.length - 1; j >= 0; j--) {
       var c = el.childNodes[j];
@@ -836,7 +1129,7 @@
     /* ---------- 板载传感器 ---------- */
     'zk_light': { type: 'hunan_mpython_read_light' },
     'zk_sound': { type: 'hunan_mpython_read_sound' },
-    'zk_accel': { type: 'hunan_mpython_accelerometer_get' },
+    'zk_accel': { type: 'hunan_mpython_accelerometer_get', f: { AXIS: 'axis' } },
     'zk_time_now': { type: 'hunan_mpython_time_localtime' },
     'zk_time_tick': { type: 'hunan_mpython_time_ticks' },
 
@@ -849,13 +1142,17 @@
        让保存出的 mxml 在 mPython IDE 里不出现未知块。
        · zk_print → hunan_input（官方「输入框」积木，输入口名同样是 text，
          在 mPython 里会弹出输入框；本项目的「打印」在真机上也常配合 input 用）
-       · zk_oled_show → hunan_mpython_display_DispChar
-         官方没有独立的「刷新屏幕」积木 —— DispChar 的 Python 生成器
-         会自动带上 oled.show()，语义等价。
-       · zk_gps_ready 官方确无对应物（判断是否已定位），只能保留。 */
+       · zk_gps_ready 官方确无对应物（判断是否已定位），只能保留。
+
+       第五十八轮修正：zk_oled_show（屏幕刷新）原来映射成
+       hunan_mpython_display_DispChar，那是「显示文字」积木 ——
+       保存时把「刷新屏幕」丢成了空文字块，再打开就变成
+       「屏幕显示（你好，掌控板）X 0 Y 0」，学生以为积木被改坏了。
+       官方其实有独立的刷新积木 mpython_display_Show（官方示例里随处可见，
+       是个空块），改成它才能 1:1 往返。 */
     'zk_print': { type: 'hunan_input', v: { V: 'text' } },
     'zk_gps_ready': { type: 'zk_gps_ready' },
-    'zk_oled_show': { type: 'hunan_mpython_display_DispChar' },
+    'zk_oled_show': { type: 'mpython_display_Show' },
     'zk_servo': { type: 'hunan_LeDong_servo', v: { A: 'servo_angle' } },
     'zk_music_stop': { type: 'hunan_microbit_music_stop' },
 
@@ -865,7 +1162,30 @@
     'zk_radio_msg': { type: 'hunan_mpython3_radio_recv_msg', f: { message: 'message' } },
     /* 第四十五轮：语句版广播 / MQTT 消息（官方 mxml 导入用） */
     'zk_radio_msg_do': { type: 'hunan_mpython3_radio_recv_msg', v: { MSG: 'message' } },
-    'zk_mqtt_msg_do': { type: 'hunan_mpython3_siot_receive_msg', v: { MSG: 'message' } },
+    /* 第六十轮：SIoT 全套（导入/导出双向，revNames 会反向生成口名对照） */
+    'zk_wait_until': { type: 'hunan_dengdaizhidao' },
+    'zk_siot_init': { type: 'hunan_mpython_siot_init' },
+    'zk_mqtt_do_connect': { type: 'hunan_mpython_siot_connect' },
+    'zk_mqtt_ok': { type: 'hunan_mpython_siot_isconnected' },
+    'zk_mqtt_sub': { type: 'hunan_mpython_siot_subscribe' },
+    'zk_when_mqtt_topic': { type: 'hunan_mpython3_siot_receive_from', f: { TOPIC: 'TOPIC' } },
+    /* 官方消息口名是 msg（不是 message），写错的旧版会把内容静默删掉 */
+    'zk_when_mqtt_msg': { type: 'hunan_mpython3_siot_receive_msg', v: { MSG: 'msg' } },
+    'zk_mqtt_pub': { type: 'hunan_mpython_siot_publish_to', v: { TOPIC: 'TOPIC', MSG: 'MESSAGE' } },
+    'zk_mqtt_msg': { type: 'hunan_mpython_siot_message' },
+    'zk_radio_on': { type: 'hunan_mpython_radio_on_off', f: { ON: 'on_off' } },
+    'zk_ask': { type: 'hunan_input', v: { V: 'text' } },
+    'zk_answer': { type: 'hunan_input_res' },
+    'zk_music_melody': { type: 'hunan_microbit_music_play_built_in', f: { NAME: 'melody', MODE: 'REPEAT_MODE' } },
+    'zk_weather': { type: 'hunan_mpython_get_seniverse_weather_info2', v: { CITY: 'location' }, f: { K: 'type' } },
+    'zk_pin_ain': { type: 'hunan_python_conn_read_analog', f: { PIN: 'pin' } },
+    'zk_ultra_init': { type: 'hunan_mpython_bluebit_ultrasonic_init' },
+    'zk_mqtt_msg_do': { type: 'hunan_mpython3_siot_receive_msg', v: { MSG: 'msg' } },
+    /* 第六十轮：蓝牙（educore HID）/ 摇晃 / 输入框 */
+    'zk_ble_hid': { type: 'educore_ble_hid', v: { NAME: 'name' } },
+    'zk_ble_connected': { type: 'educore_ble_hid_connected' },
+    'zk_ble_key': { type: 'educore_ble_hid_keyboard_send', f: { KEY: 'keyboard' } },
+    'zk_is_shake': { type: 'educore_accelerometer_shake' },
     'zk_wifi_connect': { type: 'hunan_mpython3_init_wifi', f: { SSID: 'ssid', PWD: 'password' } },
     'zk_wifi_ok': { type: 'hunan_mpython_wifi_isconnected' },
 
@@ -895,6 +1215,52 @@
     });
     return m;
   })();
+
+  /* ------------------------------------------------------------
+   * 第五十九轮：导出钩子 —— 改类型/改名字表达不了的转换
+   *
+   * 【要解决什么】
+   *   本项目「设置彩灯 0 为 [取色器]」用的是一个十六进制颜色字段，
+   *   而官方 hunan_mpython_set_rgb_list_number 只有 R / G / B 三个数值口。
+   *   只改类型不改内容的话，颜色会整个丢掉 ——
+   *   官方 IDE 打开是黑的，我们自己再打开也变黑（回到默认红）。
+   *
+   * 【怎么做】
+   *   导出时把 COLOR 拆成 R/G/B 三个 <value> + math_number 影子块，
+   *   已经存在的口不动（不覆盖学生自己填的数）。
+   * ------------------------------------------------------------ */
+  var EXPORT_HOOKS = {
+    zk_rgb_one: function (el, doc) {
+      var hex = '';
+      for (var i = 0; i < el.childNodes.length; i++) {
+        var c = el.childNodes[i];
+        if (c.nodeType === 1 && c.nodeName === 'field' && c.getAttribute('name') === 'COLOR') {
+          hex = String(c.textContent || '').trim();
+        }
+      }
+      var m = /^#?([0-9a-f]{6})$/i.exec(hex);
+      if (!m) return;
+      var x = parseInt(m[1], 16);
+      var rgb = [(x >> 16) & 255, (x >> 8) & 255, x & 255];
+
+      ['R', 'G', 'B'].forEach(function (name, k) {
+        for (var j = 0; j < el.childNodes.length; j++) {   /* 已有该口就不动 */
+          var n = el.childNodes[j];
+          if (n.nodeType === 1 && n.nodeName === 'value' && n.getAttribute('name') === name) return;
+        }
+        var v = doc.createElement('value');
+        v.setAttribute('name', name);
+        var sh = doc.createElement('shadow');
+        sh.setAttribute('type', 'math_number');
+        var fd = doc.createElement('field');
+        fd.setAttribute('name', 'NUM');
+        fd.textContent = String(rgb[k]);
+        sh.appendChild(fd);
+        v.appendChild(sh);
+        el.appendChild(v);
+      });
+    }
+  };
 
   /* ------------------------------------------------------------
    * 把 XML 文本按 EXPORT_MAP 改写成官方类型
@@ -963,6 +1329,12 @@
           if (node) node.parentNode.removeChild(node);
         });
       });
+      /* 第五十九轮：有些积木光靠「改类型 + 改名字」表达不了，
+         需要用钩子补节点（典型：彩灯取色器 → 官方 R/G/B 三个数值口） */
+      var hook = EXPORT_HOOKS[t];
+      if (hook) {
+        try { hook(it.el, doc); } catch (e) { /* 钩子出问题不拖垮整份导出 */ }
+      }
     });
 
     stats.keptTypes = Object.keys(keptTypes);
@@ -1030,6 +1402,8 @@
     prettyXml: prettyXml,
     toMpythonTypes: toMpythonTypes,
     unmappedTypes: unmappedTypes,
+    /* 上一次 remapTypes 修好了几个「被旧版存坏的屏幕刷新」积木 */
+    lastRepair: function () { return _lastRepair; },
     isBidirectional: isBidirectional,
     EXPORT_MAP: EXPORT_MAP,
     REVERSE_MAP: REVERSE_MAP,

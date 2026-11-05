@@ -258,7 +258,19 @@
   PY.forBlock['zk_light'] = function () { return ['light.read()', O]; };
   PY.forBlock['zk_sound'] = function () { return ['sound.read()', O]; };
   PY.forBlock['zk_accel'] = function (b) {
-    return ['accelerometer.get_' + b.getFieldValue('AXIS') + '()', O];
+    var ax = b.getFieldValue('AXIS');
+    /* 第六十轮：官方「综合强度」= 三轴合成，乘以 1000 转成 mg 后取模 */
+    if (ax === 'strength') {
+      return ['round(math.sqrt(math.pow(accelerometer.get_x() * 1000, 2) + ' +
+        'math.pow(accelerometer.get_y() * 1000, 2) + ' +
+        'math.pow(accelerometer.get_z() * 1000, 2)))', O];
+    }
+    return ['accelerometer.get_' + ax + '()', O];
+  };
+  /* 第六十轮：正在摇晃？（第 8 课）—— 没有 shake() 接口，用加速度突变判断 */
+  PY.forBlock['zk_is_shake'] = function () {
+    return ['(abs(accelerometer.get_x()) + abs(accelerometer.get_y()) + ' +
+      'abs(accelerometer.get_z() - 1) > 0.5)', O];
   };
   PY.forBlock['zk_tilt'] = function (b) {
     var idx = b.getFieldValue('K') === 'r' ? '0' : '1';
@@ -501,6 +513,79 @@
   PY.forBlock['zk_mqtt_msg_do'] = function (b) {
     return 'print("MQTT 消息:", _mqtt_msg)\n';
   };
+
+  /* ---- 第六十轮：SIoT（官方 siot.iot 接口） ---- */
+  PY.forBlock['zk_siot_init'] = function (b) {
+    return '_siot = iot(' + v(b, 'CLIENT_ID', "'userA'") + ', ' + v(b, 'SERVER', "'192.168.1.150'") +
+      ', user=' + v(b, 'IOT_USER', "'siot'") + ', password=' + v(b, 'IOT_PWD', "'zhangkong'") + ')\n';
+  };
+  PY.forBlock['zk_mqtt_do_connect'] = function () {
+    return 'try:\n' +
+      '    _siot.connect()\n' +
+      '    _siot_connected = True\n' +
+      'except OSError as err:\n' +
+      '    print("OSError: {}".format(err))\n';
+  };
+  PY.forBlock['zk_mqtt_ok'] = function () { return ['_siot_connected', O]; };
+  PY.forBlock['zk_mqtt_sub'] = function (b) {
+    var out = '';
+    for (var i = 0; i < (b.subN_ || 1); i++) {
+      var code = v(b, 'ADD' + i, '');
+      if (!code) continue;
+      out += '_siot.getsubscribe(str(' + code + ').encode())\n';
+    }
+    return out;
+  };
+
+  /* ---- 第六十轮：蓝牙 BLE HID（educore.hid） ---- */
+  PY.forBlock['zk_ble_hid'] = function (b) {
+    return '_ble = hid(name=str(' + v(b, 'NAME', "'mpy_hid'") + '))\n';
+  };
+  PY.forBlock['zk_ble_connected'] = function () {
+    return ['bool(_ble and _ble.isconnected())', O];
+  };
+  PY.forBlock['zk_ble_key'] = function (b) {
+    return '_ble.keyboard_send(keycode.' + (b.getFieldValue('KEY') || 'SPACE') + ')\n';
+  };
+  PY.forBlock['zk_ble_mouse'] = function (b) {
+    return '_ble.mouse_key(' + (b.getFieldValue('ACT') || '1') + ')\n';
+  };
+
+  /* ---- 第六十轮：画笔（纯舞台功能，真机没有对应硬件） ---- */
+  var PEN_CN = {
+    clear: '全部擦除', stamp: '图章', down: '落笔', up: '抬笔'
+  };
+  PY.forBlock['zk_pen_clear'] = function () { return simComment('画笔：全部擦除（画笔只在网页舞台生效）'); };
+  PY.forBlock['zk_pen_stamp'] = function () { return simComment('画笔：图章（画笔只在网页舞台生效）'); };
+  PY.forBlock['zk_pen_down'] = function () { return simComment('画笔：落笔（画笔只在网页舞台生效）'); };
+  PY.forBlock['zk_pen_up'] = function () { return simComment('画笔：抬笔（画笔只在网页舞台生效）'); };
+  PY.forBlock['zk_pen_color_to'] = function (b) {
+    return simComment('画笔：颜色设为 ' + (b.getFieldValue('COLOR') || '#0000ff') + '（仅舞台）');
+  };
+  PY.forBlock['zk_pen_color_add'] = function (b) {
+    return simComment('画笔：' + (b.getFieldValue('PARAM') || 'color') + ' 增加 ' + v(b, 'N', '10') + '（仅舞台）');
+  };
+  PY.forBlock['zk_pen_color_set'] = function (b) {
+    return simComment('画笔：' + (b.getFieldValue('PARAM') || 'color') + ' 设为 ' + v(b, 'N', '50') + '（仅舞台）');
+  };
+  PY.forBlock['zk_pen_size_add'] = function (b) {
+    return simComment('画笔：粗细增加 ' + v(b, 'N', '1') + '（仅舞台）');
+  };
+  PY.forBlock['zk_pen_size_set'] = function (b) {
+    return simComment('画笔：粗细设为 ' + v(b, 'N', '5') + '（仅舞台）');
+  };
+
+  /* ---- 第六十轮：等待直到 / 无线广播开关 / 询问 ---- */
+  PY.forBlock['zk_wait_until'] = function (b) {
+    return 'while not (' + v(b, 'BOOL', 'True') + '):\n    pass\n';
+  };
+  PY.forBlock['zk_radio_on'] = function (b) {
+    return 'radio.' + (b.getFieldValue('ON') === 'off' ? 'off' : 'on') + '()\n';
+  };
+  PY.forBlock['zk_ask'] = function (b) {
+    return '_answer = input(str(' + v(b, 'V', "'请输入'") + '))\n';
+  };
+  PY.forBlock['zk_answer'] = function () { return ['_answer', O]; };
   // WiFi 语音识别（旧积木）
   PY.forBlock['zk_asr_text'] = function () { return ['_asr_text()', O]; };
 
@@ -998,6 +1083,19 @@
       L.push('    for _t, _fn in _mqtt_subs:');
       L.push('        if topic == _t:');
       L.push('            _fn(topic, msg)');
+    }
+    if (flags.siot) {
+      L.push('# SIoT 物联网（掌控板 3.0 官方 siot.iot 接口）');
+      L.push('from siot import iot');
+      L.push('_siot = None');
+      L.push('_siot_connected = False');
+      L.push('_mqtt_msg = ""');
+      L.push('_answer = ""');
+    }
+    if (flags.ble) {
+      L.push('# 蓝牙键盘 / 鼠标（BLE HID，无线，无需接线）');
+      L.push('from educore import hid, keycode');
+      L.push('_ble = None');
     }
     if (flags.asr) {
       L.push('# WiFi 语音识别（先连接 WiFi）');
@@ -2034,6 +2132,29 @@
         '        _' + uid + '()\n' +
         '    sleep_ms(30)\n';
     }
+    if (type === 'zk_when_mqtt_topic' || type === 'zk_when_mqtt_msg') {
+      /* 官方 siot 回调：def _siot_recv_x(_topic, _msg)，回调里判断主题；
+         zk_when_mqtt_msg 再判断内容是否等于指定文本。
+         ⚠ 缩进必须一层层加，程序体只能出现一次。 */
+      var tp = JSON.stringify(block.getFieldValue('TOPIC') || '');
+      var out = 'def _' + uid + '(_topic, _msg):\n' +
+        '    global _mqtt_msg\n' +
+        '    _mqtt_msg = str(_msg, "utf-8")\n' +
+        '    if str(_topic, "utf-8") == ' + tp + ':\n';
+      if (type === 'zk_when_mqtt_msg') {
+        var want = v(block, 'MSG', "'on'");
+        /* body 本身已带 4 个空格缩进（eventCode 里 indent 过），
+           这里只要再加 8 → 12，正好落在 if 下面 */
+        out += '        if str(_msg, "utf-8") == str(' + want + '):\n' +
+          indent(body, '        ') + '\n' +
+          '        return\n';
+      } else {
+        out += indent(body, '    ') + '\n';
+      }
+      return out + 'def _zk_register():\n' +
+        '    _siot.set_callback(_' + uid + ')\n' +
+        '    _siot.loop()\n';
+    }
     if (type === 'zk_when_mqtt') {
       var topic = v(block, 'TOPIC', "''");
       return 'def _' + uid + '(_topic, _msg):\n' +
@@ -2064,6 +2185,7 @@
       mic: false, lightExt: false, soil: false, pm25: false, baro: false,
       extbtn: false, fan: false,
       wifi: false, radio: false, ntp: false, mqtt: false, asr: false, weather: false,
+      siot: false, ble: false,   /* 第六十轮：SIoT 物联网 / 蓝牙 HID */
       speech: false,   /* 第二十四轮：AI 语音转文字 + 语音合成 */
       /* mPython 扩展 API */
       musicTempo: false, parrot: false, neopixel: false,
@@ -2122,6 +2244,11 @@
       zk_ntp_sync: 'ntp', zk_time_now: 'ntp',
       zk_mqtt_connect: 'mqtt', zk_mqtt_pub: 'mqtt',
       zk_when_mqtt: 'mqtt', zk_mqtt_msg: 'mqtt',
+      /* 第六十轮：SIoT / 蓝牙 */
+      zk_siot_init: 'siot', zk_mqtt_do_connect: 'siot', zk_mqtt_ok: 'siot',
+      zk_mqtt_sub: 'siot', zk_when_mqtt_topic: 'siot', zk_when_mqtt_msg: 'siot',
+      zk_ble_hid: 'ble', zk_ble_connected: 'ble',
+      zk_ble_key: 'ble', zk_ble_mouse: 'ble',
       zk_asr_text: 'asr',
       /* 第二十四轮：AI 语音能力（独立函数库，不依赖 WiFi） */
       zk_speech_recognize: 'speech', zk_speech_text: 'speech',
@@ -2209,6 +2336,8 @@
          否则真机一跑就 NameError: name 'math' isn't defined。
          其它 OP（绝对值 / 取负 …）是内置运算符，不需要 import。 */
       if (t === 'math_single' && b.getFieldValue('OP') === 'ROOT') flags.mathLib = true;
+      /* 第六十轮：加速度「综合强度」用 math.sqrt / math.pow */
+      if (t === 'zk_accel' && b.getFieldValue('AXIS') === 'strength') flags.mathLib = true;
     });
 
     /* 位图注册表需重置：随后先编译 body（登记用到的图片），
@@ -2222,12 +2351,15 @@
     var bodyParts = [];
     workspace.getTopBlocks(true).forEach(function (top) {
       var t = top.type;
-      if (t === 'zk_when_start') {
+      if (t === 'zk_when_start' || t === 'zk_when_run') {
+        /* 第六十轮：舞台 / 画笔入口「当点击运行时」在真机上没有对应概念，
+           其程序体（多数是画笔积木）按注释输出，不影响其它逻辑 */
         var n = top.getNextBlock();
         if (n) bodyParts.push(PY.blockToCode(n));
       } else if (t === 'zk_when_btn' || t === 'zk_when_touch' ||
                  t === 'zk_when_ir' || t === 'zk_when_shake' ||
-                 t === 'zk_when_radio' || t === 'zk_when_mqtt') {
+                 t === 'zk_when_radio' || t === 'zk_when_mqtt' ||
+                 t === 'zk_when_mqtt_topic' || t === 'zk_when_mqtt_msg') {
         bodyParts.push(eventCode(top));
       } else if (t === 'zk_my_def') {
         /* 已在 myDefs 中统一处理 */

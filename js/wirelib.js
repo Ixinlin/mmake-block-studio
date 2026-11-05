@@ -136,6 +136,30 @@
   };
   /* 板载器件（无需接线即可工作）：二维码、磁力计、板载无线等 */
   var NO_WIRE = { qrcode: 1, magnetic: 1, radio: 1, asr: 1, expboard: 1 };
+  /* 第六十轮：WiFi / 天气 / 网络时间 / MQTT 都是**无线通信协议**，
+     走的是掌控板板载 2.4G / 以太网协议栈，不需要插任何线；
+     蓝牙（BLE）同理。画笔更是纯软件（舞台绘制），连设备都算不上。
+     以前这几类被当成「2Pin 网络模块」要求接 P13/P14/P15，
+     一点运行就弹「硬件连接」画面 —— 与事实不符，故一律免接线。 */
+  ['wifi', 'weather', 'ntp', 'mqtt', 'ble', 'pen'].forEach(function (id) {
+    NO_WIRE[id] = 1;
+  });
+  /* 第六十一轮：免接线设备在「硬件连接」界面下方不再显示「未连接」——
+     那个词会让人以为"还得拉根线"，其实它们根本不接线。
+     这里给每个设备一句如实的说明，标签颜色也更浅（不是警告色）。 */
+  var NO_WIRE_TAG = {
+    radio: '2.4G 无线',
+    ble: '2.4G 蓝牙',
+    wifi: '互联网',
+    mqtt: '互联网',
+    ntp: '互联网',
+    weather: '互联网',
+    asr: '互联网',
+    pen: '免连线',
+    qrcode: '板载',
+    magnetic: '板载',
+    expboard: '板载'
+  };
 
   /* 硬件 → 推荐接口（仅用于菜单排序与「推荐」提示） */
   var DEVICE_PORT = {
@@ -767,7 +791,10 @@
         hwThumb(id) + '</div>' +
         '<div class="wl-part-n">' + esc(nm) + '</div>' +
         (c ? '<div class="wl-port-tag" style="background:' + colorOfPort(c.port) + '">' + c.port + '</div>'
-          : '<div class="wl-port-tag none">未连接</div>') +
+          : (NO_WIRE_TAG[id]
+            ? '<div class="wl-port-tag free" title="无需接线：' + NO_WIRE_TAG[id] + '">' +
+              NO_WIRE_TAG[id] + '</div>'
+            : '<div class="wl-port-tag none">未连接</div>')) +
         '</div>';
     }).join('');
 
@@ -1149,8 +1176,19 @@
     if (!s) return;
     var added = ZKB.SimBoard ? ZKB.SimBoard.getDevices() : [];
     var n = conns.length;
+    /* 第六十一轮：无线 / 板载设备本来就不接线，不能算进「还没连」，
+       否则会出现「已添加 10 个、已连接 5 个（未连接的硬件不会工作）」这种
+       让人以为 WiFi / MQTT / 画笔也得拉根线的提示。 */
+    var free = 0, wired = 0;
+    added.forEach(function (id) {
+      if (ifaceOf(id)) wired++;
+      else free++;
+    });
+    var pending = Math.max(0, wired - n);
     s.innerHTML = '已添加硬件 <b>' + added.length + '</b> 个 · 已连接 <b>' + n + '</b> 个' +
-      (n < added.length ? ' <span style="color:#e0483e">（未连接的硬件不会工作）</span>' : '');
+      (free ? ' · 免接线 <b>' + free + '</b> 个' : '') +
+      (pending > 0 ? ' <span style="color:#e0483e">（还有 ' + pending +
+        ' 个没接线，它们不会工作）</span>' : '');
   }
 
   /* ============================================================

@@ -27,12 +27,19 @@
     /* 通讯网络仿真状态（物联网情境） */
     net: {
       wifi: { connected: false, ssid: '' },
-      radio: { group: 7, lastMsg: '' },
+      radio: { group: 7, lastMsg: '', on: true },
       ntp: { synced: false },
-      mqtt: { connected: false, host: '', lastTopic: '', lastMsg: '' },
+      mqtt: {
+        connected: false, host: '', lastTopic: '', lastMsg: '',
+        clientId: '', user: '', pwd: '', wsUrl: ''
+      },
+      /* 第六十轮：蓝牙（BLE HID，无线） */
+      ble: { on: false, name: '', connected: false, keys: [] },
       asr: { text: '开灯' },
       weatherCity: '北京'
     },
+    /* 第六十轮：「询问…并等待回答」的答案 */
+    answer: '',
     devices: {
       dht: { t: 26, h: 55 },
       ultrasonic: { cm: 30 },
@@ -253,7 +260,10 @@
   var WIDE_DEVICES = {
     car: 1, rgbStrip: 1, traceCar: 1, remote: 1, weather: 1, camera: 1,
     ledModule: 1, relay: 1, pir: 1, fan: 1, angle: 1,
-    tracker: 1, powerMeter: 1, gravity: 1
+    tracker: 1, powerMeter: 1, gravity: 1,
+    /* 第六十一轮：MQTT 有几个输入框 + 两个通道按钮，窄卡片挤成一列很难看；
+       画笔要放色块 + 粗细读数，也给它两格宽。 */
+    mqtt: 1, pen: 1
   };
   /* 这些卡片的控件区自带「设备仿真画面」（灯珠 / 雷达 / 表盘 / 探针…），
      已经能说明这是什么设备，不必再并排一个 64/88px 的静态图标。
@@ -508,10 +518,36 @@
           '<div class="val" id="v-ntp-time" style="font-size:13px">— —</div>' +
           '<div class="chip-row"><span class="chip-btn" id="ntp-test">模拟对时成功</span></div>';
       case 'mqtt':
-        return '<div class="val">状态：<b id="v-mqtt">未连接</b></div>' +
-          '<div style="font-size:10px;color:#9aa3af">主题 <input type="text" id="mqtt-topic" value="/classroom/light" style="width:130px;font-size:11px;padding:2px 4px"></div>' +
-          '<div style="font-size:10px;color:#9aa3af;margin-top:3px">消息 <input type="text" id="mqtt-msg" value="on" style="width:130px;font-size:11px;padding:2px 4px"></div>' +
-          '<div class="chip-row"><span class="chip-btn" id="mqtt-inject">模拟服务器下发消息</span></div>';
+        /* 第六十一轮：MQTT 改成两格宽卡片后，内容按两列排，
+           不再一根一根往下堆（否则卡片比屏幕还高，下面几行要滚动才看得到）。 */
+        return '<div class="mqtt-grid">' +
+          '<div class="val">状态：<b id="v-mqtt">未连接</b></div>' +
+          '<div class="val" id="v-mqtt-cid">客户端：—</div>' +
+          '</div>' +
+          '<div class="mqtt-grid">' +
+          '<label class="mqtt-field">主题<input type="text" id="mqtt-topic" value="/classroom/light"></label>' +
+          '<label class="mqtt-field">消息<input type="text" id="mqtt-msg" value="on"></label>' +
+          '</div>' +
+          '<div class="chip-row"><span class="chip-btn" id="mqtt-inject">模拟服务器下发消息</span>' +
+          '<span class="chip-btn" id="mqtt-real">连接真实服务器</span>' +
+          '<span class="chip-btn" id="mqtt-virtual">仅虚拟通道</span></div>' +
+          '<label class="mqtt-field wide">真实服务器（可留空）' +
+          '<input type="text" id="mqtt-ws" placeholder="ws://broker.emqx.io:8083/mqtt"></label>';
+      /* 第六十一轮：画笔卡片 —— 实时显示「颜色 / 粗细 / 落笔状态」 */
+      case 'pen':
+        return '<div class="pen-state">' +
+          '<span class="pen-swatch" id="v-pen-swatch" title="当前笔色"></span>' +
+          '<div class="pen-readouts">' +
+          '<div class="val">颜色 <b id="v-pen-hex">#0000ff</b></div>' +
+          '<div class="val">粗细 <b id="v-pen-size">1</b> px　状态 <b id="v-pen-down">抬笔</b></div>' +
+          '<div class="pen-holder" id="v-pen-holder">跟随：—</div>' +
+          '</div></div>' +
+          '<div class="chip-row"><span class="chip-btn" id="pen-clear">全部擦除</span></div>';
+      case 'ble':
+        return '<div class="val">蓝牙：<b id="v-ble">未开启</b></div>' +
+          '<div class="val" id="v-ble-name" style="font-size:10px;color:#9aa3af">运行「开启蓝牙键盘」积木后出现</div>' +
+          '<div class="chip-row"><span class="chip-btn" id="ble-toggle">模拟连接 / 断开</span></div>' +
+          '<div class="val" id="v-ble-keys" style="font-size:10px;color:#9aa3af;margin-top:4px">最近按键：—</div>';
       case 'asr':
         return '<div class="val">识别到：<b id="v-asr">开灯</b></div>' +
           '<div class="chip-row">' +
@@ -2316,6 +2352,47 @@
         state.net.mqtt.connected = true;
         if (ZKB.SimEngine.injectMqtt) ZKB.SimEngine.injectMqtt(topic, msg);
       });
+      /* 第六十轮：真实服务器（MQTT over WebSocket）通道 */
+      var wsIn = card.querySelector('#mqtt-ws');
+      if (wsIn) wsIn.value = state.net.mqtt.wsUrl || '';
+      card.querySelector('#mqtt-real').addEventListener('click', function () {
+        var url = (wsIn.value || '').trim();
+        if (!url) { if (ZKB.toast) ZKB.toast('请先填写 WebSocket 地址'); return; }
+        state.net.mqtt.wsUrl = url;
+        if (ZKB.MqttBus) {
+          ZKB.MqttBus.open({
+            wsUrl: url,
+            clientId: state.net.mqtt.clientId || ('zkb_' + Math.random().toString(36).slice(2, 8)),
+            user: state.net.mqtt.user, pwd: state.net.mqtt.pwd
+          });
+          /* 让引擎把收到的真实消息派发给订阅者 */
+          if (!ZKB.MqttBus._zkbBound) {
+            ZKB.MqttBus._zkbBound = true;
+            ZKB.MqttBus.onMessage(function (topic, msg) {
+              if (ZKB.SimEngine && ZKB.SimEngine.injectMqtt) ZKB.SimEngine.injectMqtt(topic, msg);
+            });
+          }
+        }
+        if (ZKB.toast) ZKB.toast('正在连接真实 MQTT 服务器…');
+      });
+      card.querySelector('#mqtt-virtual').addEventListener('click', function () {
+        state.net.mqtt.wsUrl = '';
+        if (ZKB.MqttBus) ZKB.MqttBus.close();
+        if (wsIn) wsIn.value = '';
+        if (ZKB.toast) ZKB.toast('已切回虚拟仿真通道');
+      });
+    }
+    /* 第六十轮：蓝牙卡片 —— 模拟「电脑已连上这块板子」 */
+    if (base === 'ble') {
+      var bt = card.querySelector('#ble-toggle');
+      if (bt) bt.addEventListener('click', function () {
+        state.net.ble.connected = !state.net.ble.connected;
+        if (state.net.ble.connected && !state.net.ble.on) {
+          state.net.ble.on = true;
+          state.net.ble.name = state.net.ble.name || 'mpy_hid';
+        }
+        refreshNetUI();
+      });
     }
     if (base === 'asr') {
       card.querySelectorAll('[data-asr]').forEach(function (b) {
@@ -2323,6 +2400,15 @@
           state.net.asr.text = b.getAttribute('data-asr');
           card.querySelector('#v-asr').textContent = state.net.asr.text;
         });
+      });
+    }
+    /* 第六十一轮：画笔卡片 —— 一键清掉舞台笔迹 */
+    if (base === 'pen') {
+      var pc = card.querySelector('#pen-clear');
+      if (pc) pc.addEventListener('click', function () {
+        if (ZKB.Stage && ZKB.Stage.penClear) ZKB.Stage.penClear();
+        if (ZKB.toast) ZKB.toast('已擦除舞台笔迹');
+        refreshPenCard();
       });
     }
     if (base === 'weather') bindWeather(card);
@@ -2723,6 +2809,27 @@
     requestAnimationFrame(visualLoop);
   }
 
+  /* 第六十一轮：把画笔的实时状态刷到卡片上
+     （颜色色块 + hex、粗细、落笔/抬笔、跟随的元素名） */
+  function refreshPenCard() {
+    var card = document.getElementById('card-pen');
+    if (!card || !ZKB.Stage || !ZKB.Stage.penInfo) return;
+    var info;
+    try { info = ZKB.Stage.penInfo(); } catch (e) { return; }
+    var set = function (id, txt) {
+      var el = card.querySelector('#' + id);
+      if (el) el.textContent = txt;
+    };
+    var sw = card.querySelector('#v-pen-swatch');
+    if (sw) sw.style.background = info.hex;
+    set('v-pen-hex', info.hex);
+    set('v-pen-size', info.size);
+    set('v-pen-down', info.down ? '落笔中' : '抬笔');
+    var downEl = card.querySelector('#v-pen-down');
+    if (downEl) downEl.style.color = info.down ? '#e0483e' : '';
+    set('v-pen-holder', '跟随：' + (info.holder || '—（运行时会自动放置画笔）'));
+  }
+
   function refreshNetUI() {
     var n = state.net;
     var set = function (id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; };
@@ -2736,7 +2843,17 @@
       set('v-ntp-time', d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
         ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()));
     }
-    set('v-mqtt', n.mqtt.connected ? '已连接 ' + n.mqtt.host : '未连接');
+    set('v-mqtt', n.mqtt.connected
+      ? '已连接 ' + (ZKB.MqttBus && ZKB.MqttBus.isReal() ? '真实服务器 ' : '') + (n.mqtt.host || '')
+      : '未连接');
+    set('v-mqtt-cid', '客户端：' + (n.mqtt.clientId || '—') +
+      (ZKB.MqttBus && ZKB.MqttBus.isReal() ? '（真实通道）' : '（虚拟通道）'));
+    /* 第六十一轮：画笔状态（颜色 / 粗细 / 落笔） */
+    refreshPenCard();
+    /* 第六十轮：蓝牙状态 */
+    set('v-ble', n.ble.on ? (n.ble.connected ? '已连接' : '已开启 · 等待连接') : '未开启');
+    set('v-ble-name', n.ble.name ? ('蓝牙名称：' + n.ble.name) : '运行「开启蓝牙键盘」积木后出现');
+    set('v-ble-keys', '最近按键：' + (n.ble.keys && n.ble.keys.length ? n.ble.keys.join(' ') : '—'));
     /* 天气：程序运行「天气」积木后同步回填六项数据（含数据来源） */
     var wr = state.net.weatherResult;
     var wcard = document.getElementById('card-weather');
@@ -2902,6 +3019,8 @@
   ZKB.ui = ui;
   ZKB.SimBoard = {
     init: init,
+    /* 第六十轮：网络卡片（MQTT / 蓝牙）状态刷新，供仿真引擎在状态变化后调用 */
+    refreshCards: function () { refreshNetUI(); },
     /* AI 摄像头卡片的重绘回调表：{设备 id: fn}。
        人脸库变化时由 Vision.notifyFaceChange() 触发。*/
     _camPainters: {},

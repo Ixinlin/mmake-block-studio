@@ -384,6 +384,26 @@
         return s;
       },
       label: function () { return '闹钟'; }
+    },
+
+    /* ---------------- 画笔（第六十轮：Scratch 画笔的舞台载体） ----------------
+       画笔元素就是「落笔 / 抬笔」作用的那个东西：
+       它移动时留下笔迹，它停在哪，图章就盖在哪。
+       笔尖对准元素坐标原点（左上角），画出来的线和笔尖贴合。 */
+    pen: {
+      name: '画笔', w: 64, h: 64, cat: '生活物品', dynamic: true,
+      build: function () {
+        var s = '';
+        s += '<g transform="translate(10,10) rotate(38)">';
+        s += '<path d="M-1,-2 L11,-2 L7,-17 L3,-17 Z" fill="#2b3138"/>';
+        s += rr(2.5, -64, 15, 48, 3, '#0f9d8e', ' stroke="#0b7a6e" stroke-width="1.2"');
+        s += rr(2.5, -64, 15, 11, 3, '#e8c66a');
+        s += rr(5.5, -46, 9, 4, 2, '#ffffff', ' opacity=".35"');
+        s += '</g>';
+        s += '<circle cx="10" cy="10" r="2.6" fill="#0fbd8c"/>';
+        return s;
+      },
+      label: function () { return '画笔'; }
     }
   };
 

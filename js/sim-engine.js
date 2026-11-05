@@ -389,6 +389,19 @@
   var LOOP_PACE = 100;   // 循环每次迭代的最小时长（ms），防止刷屏与空转
   var lastBeat = 0;
 
+  /* 第五十七轮：循环时间切片
+     「重复 n 次 / for」这类有界循环不控速（否则重复 10 次要跑 1 秒），
+     但如果循环很长（重复 100 万次），一口气跑完同样会把主线程占死。
+     做法：循环每轮调一次 loopPoint，只有连续占用主线程超过 LOOP_SLICE
+     毫秒时才真正 setTimeout 让出一次；跑得快的循环几乎零开销。 */
+  var LOOP_SLICE = 40;
+  var sliceBeat = 0;
+
+  /* 用户点「停止」时用来中断正在跑的循环：抛一个哨兵对象，
+     各处的 catch 认得它就静默返回，不当成"程序错误"弹日志。 */
+  var ABORT = { __mmakeAbort: true };
+  function isAbort(e) { return !!(e && e.__mmakeAbort); }
+
   /* ============================================================
    * 天气服务（ZKB.Weather）—— 第二十二轮扩展
    *   联网：Open-Meteo 免费接口（无需密钥、支持跨域）
@@ -718,12 +731,33 @@
           })();
         });
       },
+      /* 循环里的「让出点」：有界循环每轮调一次
+         · 已停止 → 抛中止信号，直接结束整个程序（不用等循环条件变假）
+         · 连续占用主线程超过 LOOP_SLICE ms → 真正让出一次，让浏览器重绘
+         · 否则返回 null，await 一个 null 只多一个微任务，开销可忽略 */
+      loopPoint: function () {
+        if (!running) return Promise.reject(ABORT);
+        var now = Date.now();
+        if (now - sliceBeat < LOOP_SLICE) return null;
+        sliceBeat = now;
+        return new Promise(function (res) { setTimeout(res, 0); });
+      },
       task: function (fn) {
         tasks++;
-        Promise.resolve().then(fn).catch(function (e) { log('运行错误：' + e.message, 'log-err'); })
-          .then(function () { tasks = Math.max(0, tasks - 1); });
+        Promise.resolve().then(fn).catch(function (e) {
+          if (isAbort(e)) return;                 // 用户主动停止，不算错误
+          log('运行错误：' + e.message, 'log-err');
+        }).then(function () { tasks = Math.max(0, tasks - 1); });
       },
-      on: function (evt, fn) { ZKB.bus.on(evt, function () { if (running) Promise.resolve().then(fn).catch(function (e) { log('事件执行错误：' + e.message, 'log-err'); }); }); },
+      on: function (evt, fn) {
+        ZKB.bus.on(evt, function () {
+          if (!running) return;
+          Promise.resolve().then(fn).catch(function (e) {
+            if (isAbort(e)) return;
+            log('事件执行错误：' + e.message, 'log-err');
+          });
+        });
+      },
       reset: function () {
         oled.init();
         st.rgb.dots = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
@@ -732,8 +766,20 @@
         /* 复位网络连接状态（新一轮仿真从断网开始） */
         st.net.wifi = { connected: false, ssid: '' };
         st.net.radio.lastMsg = '';
+        st.net.radio.on = true;
         st.net.ntp.synced = false;
-        st.net.mqtt = { connected: false, host: '', lastTopic: '', lastMsg: '' };
+        st.net.mqtt = {
+          connected: false, host: '', lastTopic: '', lastMsg: '',
+          clientId: '', user: '', pwd: '', wsUrl: st.net.mqtt && st.net.mqtt.wsUrl || ''
+        };
+        /* 第六十轮：蓝牙复位（连接状态保留用户手动设置，键盘名与按键记录清空） */
+        st.net.ble = {
+          on: false, name: '', keys: [],
+          connected: !!(st.net.ble && st.net.ble.connected)
+        };
+        st.answer = '';
+        /* 画笔状态复位（笔迹保留由「全部擦除」积木控制，这里只清笔的状态） */
+        if (ZKB.Stage && ZKB.Stage.penReset) ZKB.Stage.penReset();
         /* 第二十九轮：复位八年级新增硬件的仿真状态 */
         if (S.rfid) { S.rfid.last = ''; }
         if (S.asr2) { S.asr2.result = ''; S.asr2.armed = false; }
@@ -1294,8 +1340,21 @@
         return Math.max(0, Math.round(st.sound + (Math.random() - 0.5) * 60 + st.soundBurst * 3400));
       },
       accel: function (axis) {
+        /* 第六十轮：官方 STRENGTH（综合强度）= round(sqrt((x·1000)²+(y·1000)²+(z·1000)²))
+           静止时约 1000（重力 1g），摇晃时会明显变大 */
+        if (axis === 'strength') {
+          var a0 = st.accel;
+          var m = Math.sqrt(a0.x * a0.x + a0.y * a0.y + a0.z * a0.z);
+          return Math.round(m * 1000);
+        }
         var n = st.accel[axis] + (Math.random() - 0.5) * 0.03;
         return Math.round(n * 100) / 100;
+      },
+      /* 正在摇晃？—— 综合强度偏离 1g 超过 0.25g 即视为摇晃 */
+      shakeNow: function () {
+        var a0 = st.accel;
+        var m = Math.sqrt(a0.x * a0.x + a0.y * a0.y + a0.z * a0.z);
+        return Math.abs(m - 1) > 0.25;
       },
       tilt: function (k) {
         var a = st.accel;
@@ -2052,15 +2111,20 @@
         var key = String(topic);
         (this.mqttSubs[key] || (this.mqttSubs[key] = [])).push(fn);
         log('已订阅 MQTT 主题：' + key, 'log-sim');
+        if (ZKB.MqttBus) ZKB.MqttBus.subscribe(key);
       },
       mqttPub: function (topic, msg) {
         log('MQTT 发布 [' + topic + '] ' + msg, 'log-sim');
         var self = this;
-        /* 仿真回环：发布到自己订阅的主题 */
-        setTimeout(function () {
-          if (!running) return;
-          self._deliverMqtt(String(topic), String(msg));
-        }, 300);
+        if (ZKB.MqttBus) {
+          /* 第六十轮：走双通道总线（页内回环 + 跨标签页 + 可选真实服务器） */
+          ZKB.MqttBus.publish(String(topic), String(msg));
+        } else {
+          setTimeout(function () {
+            if (!running) return;
+            self._deliverMqtt(String(topic), String(msg));
+          }, 300);
+        }
         return this.tick();
       },
       _deliverMqtt: function (topic, msg) {
@@ -2073,6 +2137,136 @@
         });
       },
       mqttMsg: function () { return st.net.mqtt.lastMsg || ''; },
+
+      /* ============================================================
+       * 第六十轮：SIoT（掌控板 3.0 官方 iot 接口）
+       *   _siot = iot(client_id, server, user=…, password=…)
+       *   _siot.connect() / getsubscribe(topic) / publish(topic, msg)
+       * 仿真里真实服务器是可选项：默认用 mqtt-bus 的虚拟通道，
+       * 学生开两个标签页就能演「主控板 A / 主控板 B」。
+       * ============================================================ */
+      mqttSetup: function (cid, server, user, pwd) {
+        st.net.mqtt.clientId = String(cid == null ? '' : cid);
+        st.net.mqtt.host = String(server == null ? '' : server);
+        st.net.mqtt.user = String(user == null ? '' : user);
+        st.net.mqtt.pwd = String(pwd == null ? '' : pwd);
+        log('SIoT 客户端已创建：' + (st.net.mqtt.clientId || '(无ID)') +
+          ' @ ' + (st.net.mqtt.host || '(未填服务器)'), 'log-sim');
+        return '';
+      },
+      mqttDoConnect: function () {
+        var self = this;
+        log('正在连接 MQTT 服务器 ' + (st.net.mqtt.host || '') + ' …', 'log-sim');
+        if (ZKB.MqttBus) {
+          ZKB.MqttBus.open({
+            clientId: st.net.mqtt.clientId || ('zkb_' + Math.random().toString(36).slice(2, 8)),
+            user: st.net.mqtt.user, pwd: st.net.mqtt.pwd,
+            wsUrl: st.net.mqtt.wsUrl || ''
+          });
+          if (!ZKB.MqttBus._zkbBound) {
+            ZKB.MqttBus._zkbBound = true;
+            ZKB.MqttBus.onMessage(function (topic, msg) {
+              if (!running) return;
+              S._deliverMqtt(topic, msg);
+            });
+          }
+        }
+        return this.sleep(500).then(function () {
+          st.net.mqtt.connected = true;
+          log('MQTT 已连接 ✓' + (ZKB.MqttBus && ZKB.MqttBus.isReal()
+            ? '（真实服务器）' : '（虚拟仿真通道）'), 'log-sim');
+          if (ZKB.Stage) ZKB.Stage.netEvent('mqtt', true);
+        });
+      },
+      mqttOk: function () { return !!st.net.mqtt.connected; },
+      mqttSub: function (topic) {
+        var key = String(topic == null ? '' : topic);
+        if (!key) return '';
+        (this.mqttSubs[key] || (this.mqttSubs[key] = [])).push(function () { });
+        log('已订阅主题：' + key, 'log-sim');
+        if (ZKB.MqttBus) ZKB.MqttBus.subscribe(key);
+        return '';
+      },
+      onMqttMsg: function (topic, want, fn) {
+        var self = this;
+        var key = String(topic);
+        (this.mqttSubs[key] || (this.mqttSubs[key] = [])).push(function () {
+          if (String(st.net.mqtt.lastMsg) === String(want)) return fn();
+        });
+        log('已订阅主题：' + key + '（仅当内容为「' + want + '」时执行）', 'log-sim');
+        if (ZKB.MqttBus) ZKB.MqttBus.subscribe(key);
+      },
+      radioOn: function (v) {
+        st.net.radio.on = (String(v) !== 'off');
+        log('无线广播已' + (st.net.radio.on ? '开启' : '关闭'), 'log-sim');
+      },
+
+      /* ---- 询问 / 答案（官方「输入框」） ---- */
+      ask: function (text) {
+        var ans = '';
+        try {
+          ans = global.prompt(String(text == null ? '' : text), '') || '';
+        } catch (e) { ans = ''; }
+        st.answer = String(ans);
+        log('询问：' + text + ' → ' + st.answer, 'log-sim');
+        return this.tick();
+      },
+      answer: function () { return st.answer == null ? '' : st.answer; },
+
+      /* ============================================================
+       * 第六十轮：画笔（非硬件）—— 全部代理到 ZKB.Stage 的画笔层
+       * ============================================================ */
+      pen: {
+        clear: function () { if (ZKB.Stage) ZKB.Stage.penClear(); },
+        stamp: function () { if (ZKB.Stage) ZKB.Stage.penStamp(); },
+        down: function () { if (ZKB.Stage) ZKB.Stage.penDown(); },
+        up: function () { if (ZKB.Stage) ZKB.Stage.penUp(); },
+        setColor: function (hex) { if (ZKB.Stage) ZKB.Stage.penSetColor(null, hex); },
+        change: function (param, n) { if (ZKB.Stage) ZKB.Stage.penChangeParam(null, param, n); },
+        setParam: function (param, n) { if (ZKB.Stage) ZKB.Stage.penSetParam(null, param, n); },
+        changeSize: function (n) { if (ZKB.Stage) ZKB.Stage.penChangeSize(null, n); },
+        setSize: function (n) { if (ZKB.Stage) ZKB.Stage.penSetSize(null, n); },
+        color: function () { return ZKB.Stage ? ZKB.Stage.penColorOf() : ''; }
+      },
+
+      /* ============================================================
+       * 第六十轮：蓝牙（BLE HID）—— 无线，不接线
+       * ============================================================ */
+      ble: {
+        start: function (name) {
+          var nm = String(name == null ? 'mpy_hid' : name);
+          if (st.net.ble.on && st.net.ble.name === nm) return this.tick();
+          log('蓝牙键盘已开启，名称：' + nm, 'log-sim');
+          st.net.ble.on = true;
+          st.net.ble.name = nm;
+          st.net.ble.keys = [];
+          if (ZKB.SimBoard && ZKB.SimBoard.refreshCards) ZKB.SimBoard.refreshCards();
+          return S.sleep(600);
+        },
+        connected: function () { return !!st.net.ble.connected; },
+        key: function (k) {
+          var key = String(k == null ? '' : k);
+          if (!st.net.ble.connected) {
+            log('蓝牙未连接，按键「' + key + '」没有发出去', 'log-err');
+            return S.tick();
+          }
+          st.net.ble.keys.push(key);
+          if (st.net.ble.keys.length > 12) st.net.ble.keys.shift();
+          log('蓝牙发送按键：' + key, 'log-sim');
+          if (ZKB.SimBoard && ZKB.SimBoard.refreshCards) ZKB.SimBoard.refreshCards();
+          return S.tick();
+        },
+        mouse: function (a) {
+          if (!st.net.ble.connected) {
+            log('蓝牙未连接，鼠标操作没有发出去', 'log-err');
+            return S.tick();
+          }
+          st.net.ble.keys.push(String(a) === '2' ? '鼠标双击' : '鼠标单击');
+          log('蓝牙鼠标' + (String(a) === '2' ? '双击' : '单击'), 'log-sim');
+          if (ZKB.SimBoard && ZKB.SimBoard.refreshCards) ZKB.SimBoard.refreshCards();
+          return S.tick();
+        }
+      },
 
       asrText: function () { return st.net.asr.text || ''; },
 
@@ -2217,10 +2411,14 @@
   function run(workspace) {
     st = ZKB.state;
     ensureDevices(workspace);
+    /* 第六十一轮：点「运行」时先把素材库试听 / 上一轮残留的音乐停掉，
+       否则两首会叠着响，学生会以为程序里播错了曲子。 */
+    if (ZKB.MusicLib && ZKB.MusicLib.stop) { try { ZKB.MusicLib.stop(); } catch (e) { } }
     ZKB.bus.clear();
     running = true;
     startedAt = Date.now();
     lastBeat = 0;
+    sliceBeat = Date.now();
     buildRuntime();
     // 复位执行器
     st.devices.car.l = st.devices.car.r = 0; st.devices.motor.vel = 0;
@@ -2272,6 +2470,7 @@
       var AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
       var fn = new AsyncFunction('S', code);
       Promise.resolve(fn(S)).catch(function (e) {
+        if (isAbort(e)) return;              // 用户主动停止，不算错误
         log('程序错误：' + e.message + '（行：' + (e.lineNumber || '?') + '）', 'log-err');
         if (running) { running = false; if (onHalt) onHalt(); }
       });
@@ -2303,6 +2502,16 @@
     if (!running) return;
     running = false;
     audio.stop();
+    /* 第六十一轮：停止按钮要能真正静音。
+       以前只停了 WebAudio 的方波（audio.stop），素材库的「播放音乐」走的是
+       MusicLib（上传音频用 <audio>、内置曲目用 oscillator 排程），
+       点停止后音乐还在响 —— 现在一并停掉。 */
+    if (ZKB.MusicLib && ZKB.MusicLib.stop) {
+      try { ZKB.MusicLib.stop(); } catch (e) { }
+    }
+    if (ZKB.Speech && ZKB.Speech.stop) {
+      try { ZKB.Speech.stop(); } catch (e) { }
+    }
     // 停车 / 停转
     if (st) {
       st.devices.car.l = st.devices.car.r = 0;

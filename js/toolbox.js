@@ -106,7 +106,31 @@
     /* 其它板载可输入数值的积木 */
     zk_tone: [['F', '440'], ['D', '0.5']],
     zk_music_tempo: [['BPM', '120']],
-    zk_music_pitch: [['P', '0']]
+    zk_music_pitch: [['P', '0']],
+
+    /* 第六十轮：画笔（Scratch pen）的数值口 */
+    zk_pen_color_add: [['N', '10']],
+    zk_pen_color_set: [['N', '50']],
+    zk_pen_size_add: [['N', '1']],
+    zk_pen_size_set: [['N', '5']],
+
+    /* 第六十轮：SIoT / MQTT（湘教版八年级示例的四个参数口） */
+    zk_siot_init: [
+      ['CLIENT_ID', 'userA', 'text'], ['SERVER', '192.168.1.150', 'text'],
+      ['IOT_USER', 'siot', 'text'], ['IOT_PWD', 'zhangkong', 'text']
+    ],
+    zk_mqtt_connect: [['HOST', 'mqtt.example.cn', 'text'], ['PORT', '1883']],
+    zk_mqtt_pub: [['TOPIC', '/classroom/light', 'text'], ['MSG', 'on', 'text']],
+    zk_when_mqtt: [['TOPIC', '/classroom/light', 'text']],
+    zk_mqtt_sub: [['ADD0', '求助/1', 'text']],
+    zk_when_mqtt_msg: [['MSG', '危害发生', 'text']],
+
+    /* 第六十轮：蓝牙键盘名称 / 输入框提问 */
+    zk_ble_hid: [['NAME', 'mpy_hid', 'text']],
+    zk_ask: [['V', '本次消费多少元？', 'text']],
+
+    /* 第六十轮：等待直到（条件口由学生自己接判断积木，不带影子块） */
+    zk_wait_until: []
   };
   function b(type) {
     var sh = SHADOW_XML[type];
@@ -384,10 +408,22 @@
       'zk_mp3_volume', 'zk_mp3_playing', 'zk_mp3_folder'] },
     remote: { name: '红外遥控器', colour: C.ir, types: ['zk_remote_key', 'zk_remote_dir', 'zk_buzzer'] },
     /* —— 通讯网络 —— */
-    radio: { name: '无线广播', colour: C.net, types: ['zk_radio_group', 'zk_radio_send', 'zk_when_radio', 'zk_radio_msg'] },
+    radio: { name: '无线广播', colour: C.net, types: ['zk_radio_on', 'zk_radio_group', 'zk_radio_send', 'zk_when_radio', 'zk_radio_msg'] },
     wifi: { name: 'WiFi', colour: C.net, types: ['zk_wifi_connect', 'zk_wifi_ok'] },
     ntp: { name: 'NTP 网络时间', colour: C.net, types: ['zk_ntp_sync', 'zk_time_now'] },
-    mqtt: { name: 'MQTT', colour: C.net, types: ['zk_mqtt_connect', 'zk_mqtt_pub', 'zk_when_mqtt', 'zk_mqtt_msg'] },
+    mqtt: {
+      name: 'MQTT', colour: C.net,
+      types: ['zk_siot_init', 'zk_mqtt_do_connect', 'zk_mqtt_ok',
+        'zk_mqtt_sub', 'zk_mqtt_pub', 'zk_when_mqtt_topic', 'zk_when_mqtt_msg',
+        'zk_when_mqtt', 'zk_mqtt_msg',
+        /* 通用 MQTT（不走 SIoT 平台）的直连写法 */
+        'zk_mqtt_connect']
+    },
+    /* 第六十轮：蓝牙（BLE HID 键盘/鼠标，无线，不需要接线） */
+    ble: {
+      name: '蓝牙', colour: C.net,
+      types: ['zk_ble_hid', 'zk_ble_connected', 'zk_ble_key', 'zk_ble_mouse']
+    },
     asr: { name: 'WiFi语音识别', colour: C.net, types: ['zk_asr_text'] },
     weather: { name: '天气', colour: C.net, types: ['zk_weather'] },
     /* —— 第二十九轮：八年级新增硬件 —— */
@@ -401,7 +437,16 @@
     },
     qrcode: { name: '二维码', colour: C.oled, types: ['zk_qrcode'] },
     rfid: { name: 'RFID 射频卡', colour: C.color, types: ['zk_rfid_scan', 'zk_rfid_id'] },
-    speech2: { name: '离线语音识别', colour: C.mic, types: ['zk_speech2_init', 'zk_speech2_result'] }
+    speech2: { name: '离线语音识别', colour: C.mic, types: ['zk_speech2_init', 'zk_speech2_result'] },
+    /* 第六十轮：画笔（拓展库「其他」类别里的设备，非硬件）。
+       分类名用「画笔」，与 Scratch 一致；积木只作用于舞台。 */
+    pen: {
+      name: '画笔', colour: C.pen,
+      types: ['zk_when_run', 'zk_pen_clear', 'zk_pen_stamp',
+        'zk_pen_down', 'zk_pen_up', 'zk_pen_color_to',
+        'zk_pen_color_add', 'zk_pen_color_set',
+        'zk_pen_size_add', 'zk_pen_size_set']
+    }
   };
 
   function deviceCategory(id) {
