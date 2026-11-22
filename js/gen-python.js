@@ -300,6 +300,21 @@
   PY.forBlock['zk_pin_din'] = function (b) { return ['pin_' + b.getFieldValue('PIN') + '.read_digital()', O]; };
   PY.forBlock['zk_pin_ain'] = function (b) { return ['pin_' + b.getFieldValue('PIN') + '.read_analog()', O]; };
 
+  /* ---- 第六十二轮：舞台背景（真机没有舞台，输出仿真注释） ---- */
+  PY.forBlock['zk_bg_color'] = function (b) {
+    return simComment('将舞台背景设为颜色 ' + (b.getFieldValue('COLOR') || '#ffffff') +
+      '（背景只在网页舞台生效）');
+  };
+  PY.forBlock['zk_bg_preset'] = function (b) {
+    var CN = { white: '纯白', black: '纯黑', gray: '浅灰', sky: '天蓝',
+      green: '草地绿', default: '恢复默认' };
+    var k = b.getFieldValue('BG') || 'white';
+    return simComment('将舞台背景设为 ' + (CN[k] || k) + '（背景只在网页舞台生效）');
+  };
+  /* ---- 第六十二轮：雨滴传感器（AO 接 P0） ---- */
+  PY.forBlock['zk_rain_read'] = function () { return ['pin_0.read_analog()', O]; };
+  PY.forBlock['zk_rain_wet'] = function () { return ['(pin_0.read_analog() >= 200)', O]; };
+
   /* ============================================================
    * 拓展设备
    * ============================================================ */
@@ -489,6 +504,12 @@
     return 'radio.send(str(' + v(b, 'MSG', "''") + '))\n';
   };
   PY.forBlock['zk_radio_msg'] = function () { return ['_radio_msg', O]; };
+  /* 第六十六轮：radio.receive()（取走一条消息） */
+  PY.forBlock['zk_radio_receive'] = function () {
+    return ['(radio.receive() or "")', O];
+  };
+  /* 第六十六轮：Scratch「停止全部脚本」—— 真机上退出当前程序 */
+  PY.forBlock['zk_stop_all'] = function () { return 'sys.exit()\n'; };
   /* 第四十五轮：语句版广播消息（官方 mxml 用），把消息打印到控制台 */
   PY.forBlock['zk_radio_msg_do'] = function (b) {
     return 'print("广播内容:", _radio_msg)\n';
@@ -776,6 +797,8 @@
     L.push('from mpython import *');
 
     if (flags.music) L.push('import music');
+    /* 第六十六轮：「停止全部脚本」用 sys.exit() */
+    if (flags.stopAll) L.push('import sys');
     /* 第四十九轮：math.sqrt 需要 math 模块 */
     if (flags.mathLib) L.push('import math');
     if (flags.dht) L.push('from dht import DHT11');
@@ -2122,12 +2145,18 @@
         '    _shake_prev[0], _shake_prev[1], _shake_prev[2] = x, y, z\n' +
         'Timer(1).init(period=120, mode=Timer.PERIODIC, callback=_shake_cb)\n';
     }
-    if (type === 'zk_when_radio') {
+    if (type === 'zk_when_radio' || type === 'zk_when_radio_msg') {
+      /* 第六十六轮：官方 mpython3_radio_recv_msg 是「内容匹配才执行」的帽子。
+         radio.receive() 会取走消息，所以先存到 _rm 再比较。 */
+      var guard = '    if _rm is not None:\n';
+      if (type === 'zk_when_radio_msg') {
+        guard = '    if _rm is not None and str(_rm) == ' +
+          JSON.stringify(block.getFieldValue('MSG') || '') + ':\n';
+      }
       return 'def _' + uid + '():\n' + body + '\n' +
         '# 轮询接收同频道广播\n' +
         'while True:\n' +
-        '    _rm = radio.receive()\n' +
-        '    if _rm is not None:\n' +
+        '    _rm = radio.receive()\n' + guard +
         '        _radio_msg = str(_rm)\n' +
         '        _' + uid + '()\n' +
         '    sleep_ms(30)\n';
@@ -2186,6 +2215,7 @@
       extbtn: false, fan: false,
       wifi: false, radio: false, ntp: false, mqtt: false, asr: false, weather: false,
       siot: false, ble: false,   /* 第六十轮：SIoT 物联网 / 蓝牙 HID */
+      stopAll: false,  /* 第六十六轮：停止全部脚本 → import sys */
       speech: false,   /* 第二十四轮：AI 语音转文字 + 语音合成 */
       /* mPython 扩展 API */
       musicTempo: false, parrot: false, neopixel: false,
@@ -2241,6 +2271,9 @@
       zk_wifi_connect: 'wifi', zk_wifi_ok: 'wifi',
       zk_radio_group: 'radio', zk_radio_send: 'radio',
       zk_when_radio: 'radio', zk_radio_msg: 'radio',
+      /* 第六十六轮：广播指定内容帽子 / 读取一条消息 / 停止全部脚本 */
+      zk_when_radio_msg: 'radio', zk_radio_receive: 'radio',
+      zk_stop_all: 'stopAll',
       zk_ntp_sync: 'ntp', zk_time_now: 'ntp',
       zk_mqtt_connect: 'mqtt', zk_mqtt_pub: 'mqtt',
       zk_when_mqtt: 'mqtt', zk_mqtt_msg: 'mqtt',
@@ -2338,6 +2371,11 @@
       if (t === 'math_single' && b.getFieldValue('OP') === 'ROOT') flags.mathLib = true;
       /* 第六十轮：加速度「综合强度」用 math.sqrt / math.pow */
       if (t === 'zk_accel' && b.getFieldValue('AXIS') === 'strength') flags.mathLib = true;
+      /* 第六十二轮：雨滴传感器专用读值积木没有 PIN 字段，
+         但它用的就是 AO 接 P0，这里补一条 P0 的 ANALOG 声明 */
+      if (t === 'zk_rain_read' || t === 'zk_rain_wet') {
+        if (!flags.pins['0']) flags.pins['0'] = 'ANALOG';
+      }
     });
 
     /* 位图注册表需重置：随后先编译 body（登记用到的图片），
@@ -2358,7 +2396,7 @@
         if (n) bodyParts.push(PY.blockToCode(n));
       } else if (t === 'zk_when_btn' || t === 'zk_when_touch' ||
                  t === 'zk_when_ir' || t === 'zk_when_shake' ||
-                 t === 'zk_when_radio' || t === 'zk_when_mqtt' ||
+                 t === 'zk_when_radio' || t === 'zk_when_radio_msg' || t === 'zk_when_mqtt' ||
                  t === 'zk_when_mqtt_topic' || t === 'zk_when_mqtt_msg') {
         bodyParts.push(eventCode(top));
       } else if (t === 'zk_my_def') {

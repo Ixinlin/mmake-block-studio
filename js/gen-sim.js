@@ -298,6 +298,16 @@
   F['zk_pin_din'] = function (b) { return ['S.pinDin(' + b.getFieldValue('PIN') + ')', ATOM]; };
   F['zk_pin_ain'] = function (b) { return ['S.pinAin(' + b.getFieldValue('PIN') + ')', ATOM]; };
 
+  /* ---------- 第六十二轮：舞台背景 / 雨滴传感器 ---------- */
+  F['zk_bg_color'] = function (b) {
+    return 'S.stage.setBackground(' + JSON.stringify(b.getFieldValue('COLOR') || '#ffffff') + ');\n';
+  };
+  F['zk_bg_preset'] = function (b) {
+    return 'S.stage.setBackgroundPreset(' + JSON.stringify(b.getFieldValue('BG') || 'white') + ');\n';
+  };
+  F['zk_rain_read'] = function () { return ['S.rainValue()', ATOM]; };
+  F['zk_rain_wet'] = function () { return ['S.rainWet()', ATOM]; };
+
   /* ---------- 拓展设备（多实例：INST 字段为设备序号，默认 1） ---------- */
   function inst(b) { return Number(b.getFieldValue('INST')) || 1; }
   F['zk_dht_measure'] = function (b) { return 'S.dhtMeasure(' + inst(b) + ');\n'; };
@@ -746,6 +756,9 @@
   F['zk_radio_group'] = function (b) { return 'S.radioGroup(' + v(b, 'G', '7') + ');\n'; };
   F['zk_radio_send'] = function (b) { return 'await S.radioSend(' + v(b, 'MSG', '""') + ');\n'; };
   F['zk_radio_msg'] = function () { return ['S.radioMsg()', ATOM]; };
+  /* 第六十六轮：radio.receive() 取走一条消息 / 停止全部脚本 */
+  F['zk_radio_receive'] = function () { return ['S.radioReceive()', ATOM]; };
+  F['zk_stop_all'] = function () { return 'await S.stopAll();\n'; };
   /* 第四十五轮：语句版广播消息（官方 mxml 用） */
   F['zk_radio_msg_do'] = function (b) {
     return 'S.print("广播内容:", S.radioMsg());\n';
@@ -844,7 +857,9 @@
   ['zk_when_start', 'zk_when_btn', 'zk_when_touch', 'zk_when_shake', 'zk_when_ir',
     'zk_when_radio', 'zk_when_mqtt',
     /* 第六十轮：舞台 / 画笔入口 + SIoT 主题帽子 */
-    'zk_when_run', 'zk_when_mqtt_topic', 'zk_when_mqtt_msg'].forEach(function (t) {
+    'zk_when_run', 'zk_when_mqtt_topic', 'zk_when_mqtt_msg',
+    /* 第六十六轮：收到指定内容广播的帽子 */
+    'zk_when_radio_msg'].forEach(function (t) {
     F[t] = function () { return ''; };
   });
 
@@ -1104,6 +1119,10 @@
         code = 'S.on("ir", async function () {\n' + chainCode(top.getNextBlock()) + '});';
       } else if (t === 'zk_when_radio') {
         code = 'S.on("radio", async function () {\n' + chainCode(top.getNextBlock()) + '});';
+      } else if (t === 'zk_when_radio_msg') {
+        /* 第六十六轮：官方 mpython3_radio_recv_msg —— 内容完全匹配才触发 */
+        code = 'S.onRadioMsg(' + JSON.stringify(top.getFieldValue('MSG') || '') +
+          ', async function () {\n' + chainCode(top.getNextBlock()) + '});';
       } else if (t === 'zk_when_mqtt') {
         code = 'S.onMqtt(' + v(top, 'TOPIC', '""') + ', async function () {\n' +
           chainCode(top.getNextBlock()) + '});';

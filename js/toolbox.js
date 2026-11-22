@@ -11,6 +11,18 @@
   function cat(name, colour, blocksXml, extra) {
     return '<category name="' + name + '" colour="' + colour + '" ' + (extra || '') + '>' + blocksXml + '</category>';
   }
+  /* 第六十五轮：分组类别标题（掌控板 / 控制模块共用）。
+     web-class 会被 Blockly 挂到 flyout 的 label 元素上，样式见 css/style.css。 */
+  function grp(text) {
+    return '<label text="' + text + '" web-class="zk-board-group"></label>';
+  }
+  /* 第六十六轮：预置下拉值的积木（如「跳出循环」「继续下一轮循环」各一块） */
+  function bf(type, fields) {
+    var inner = Object.keys(fields).map(function (k) {
+      return '<field name="' + k + '">' + fields[k] + '</field>';
+    }).join('');
+    return '<block type="' + type + '">' + inner + '</block>';
+  }
 
   /* ============================================================
    * 预置数值默认值的积木（影子块写在工具箱 XML 里）
@@ -41,6 +53,8 @@
     zk_parrot_led_bright: [['B', '50']],
     /* 第三十六轮：补充官方 API 能力的数值输入 */
     zk_music_pitch: [['P', '0']],
+    /* 第六十六轮：官方 radio.config(channel) 是 1~13，默认给 13（广播示例用的频道） */
+    zk_radio_group: [['G', '13']],
     /* 第三十七轮：LED 模块的亮度输入。
        zk_led_brightness / zk_led_bright_set 的 V 口是 input_value，
        但工具箱没带影子块，拖出来是个空口，学生没法直接填 0~100 的亮度，
@@ -149,50 +163,50 @@
 
   /* ============================================================
  * 分类结构（顺序即左侧显示顺序）：
- *   1. 控制     —— 事件 / 循环 / 等待 / 打印
+ *   1. 控制     —— 事件 / 按键 / 等待 / 循环 / 循环控制 / 停止 / 无线广播 / 打印（分组标签）
  *   2. 逻辑     —— 条件 / 比较 / 运算 + 数学运算
  *   3. 屏幕显示 —— OLED 绘图 + 屏幕图片/表情
- *   4. 变量     —— 变量 + 列表（动态飞出）
- *   5. 掌控板   —— 板载资源 + 引脚IO + 扩展板(电机/灯/NeoPixel) + 已添加的传感/执行设备
- *   6. 高级     —— 文本 / 数据集合 / 文件串口 / 自制积木（默认折叠，点击展开）
+ *   4. 运动     —— 舞台元素位移 / 方向（Scratch motion）
+ *   5. 外观     —— 舞台背景 + 元素显示 / 大小 / 特效 / 层级
+ *   6. 变量     —— 变量 + 列表（动态飞出）
+ *   7. 掌控板   —— 一个分类平铺全部积木，各组上方用 label 显示类别（彩灯/板载传感器/…）
+ *   8. 高级     —— 文本 / 数据集合 / 文件串口 / 自制积木（默认折叠，点击展开）
+ *
+ *   第六十三轮：按用户指定的完整顺序重排为
+ *     控制 → 逻辑 → 屏幕显示 → 运动 → 外观 → 变量 → 掌控板 → 高级
+ *   第六十五轮：掌控板不再拆成 6 个折叠子分类，改回单分类 + 分组标签。
  * ============================================================ */
 
   /* 通用分类（常驻） */
   function commonCategories() {
     return '' +
-      /* ---- 1. 控制 ---- */
+      /* ---- 1. 控制 ----
+         第六十六轮：按类别给每组积木上方加标题（与掌控板同一套 grp()），
+         并把掌控板里重复的「事件程序」隐藏、把「按键被按下 / 按键被触摸」
+         迁到这里；无线广播积木改为常驻，不再只有添加拓展设备才出现。 */
       cat('控制', C.control,
+        grp('事件程序') +
         b('zk_when_start') + b('zk_when_btn') + b('zk_when_touch') + b('zk_when_shake') +
+        grp('按键与触摸') +
+        b('zk_is_btn') + b('zk_is_touch') +
+        grp('等待') +
         b('zk_wait_sec') + b('zk_wait_ms') +
+        grp('循环') +
         b('controls_repeat_ext') + b('controls_forever') +
         b('controls_whileUntil') + b('controls_for') +
-        b('controls_flow_statements') + b('zk_print') +
-        b('zk_time_tick')) +
-
-      /* ---- 1-5. 运动（第三十轮，对齐 Scratch motion） ----
-         方向 0°正上 / 90°正右 / 180°正下 / 270°正左，坐标以舞台中心为原点 */
-      cat('运动', C.stage_motion,
-        /* 位移（第三十五轮：前进 / 后退两块已删除，用「移动步数」+「方向设为」组合） */
-        b('zk_mv_steps') +
-        b('zk_mv_goto') + b('zk_mv_random') + b('zk_mv_glide') +
-        /* 坐标读写 */
-        b('zk_mv_changex') + b('zk_mv_changey') +
-        b('zk_mv_setx') + b('zk_mv_sety') +
-        b('zk_mv_x') + b('zk_mv_y') +
-        /* 转向（第三十五轮：带方向盘的 zk_mv_face 已删除） */
-        b('zk_mv_turnright') + b('zk_mv_turnleft') +
-        b('zk_mv_pointdir') + b('zk_mv_pointto') + b('zk_mv_dir') +
-        b('zk_mv_bounce')) +
-
-      /* ---- 1-6. 外观（第三十轮，对齐 Scratch looks） ---- */
-      cat('外观', C.stage_looks,
-        b('zk_look_show') + b('zk_look_hide') + b('zk_look_visible') +
-        b('zk_look_setsize') + b('zk_look_chsize') + b('zk_look_size') +
-        b('zk_look_opacity') + b('zk_look_ghost') +
-        b('zk_look_colorfx') + b('zk_look_cleareffects') +
-        /* 叠放层级（第三十二轮从控制模块迁来，第三十五轮四块融合为一块下拉） */
-        b('zk_look_layerop') + b('zk_look_layern') +
-        b('zk_look_layer') + b('zk_look_layercount')) +
+        grp('循环控制') +
+        /* 原来只放一块默认「跳出循环」，学生不知道下拉里还有「继续下一轮循环」；
+           现在两块都预置好，直接拖即可。 */
+        bf('controls_flow_statements', { FLOW: 'BREAK' }) +
+        bf('controls_flow_statements', { FLOW: 'CONTINUE' }) +
+        grp('停止') +
+        b('zk_stop_all') +
+        grp('无线广播') +
+        b('zk_radio_on') + b('zk_radio_group') + b('zk_radio_send') +
+        b('zk_when_radio') + b('zk_when_radio_msg') +
+        b('zk_radio_msg') + b('zk_radio_receive') +
+        grp('输出与计时') +
+        b('zk_print') + b('zk_time_tick')) +
 
       /* ---- 2. 逻辑（含数学运算） ---- */
       cat('逻辑', C.logic,
@@ -232,56 +246,68 @@
         /* 图片 / 表情（原「屏幕图片」分类，已合并） */
         b('zk_oled_image') + b('zk_oled_face')) +
 
-      /* ---- 4. 变量（含列表，动态飞出） ---- */
+      /* ---- 4. 运动（第三十轮，对齐 Scratch motion） ----
+         方向 0°正上 / 90°正右 / 180°正下 / 270°正左，坐标以舞台中心为原点 */
+      cat('运动', C.stage_motion,
+        /* 位移（第三十五轮：前进 / 后退两块已删除，用「移动步数」+「方向设为」组合） */
+        b('zk_mv_steps') +
+        b('zk_mv_goto') + b('zk_mv_random') + b('zk_mv_glide') +
+        /* 坐标读写 */
+        b('zk_mv_changex') + b('zk_mv_changey') +
+        b('zk_mv_setx') + b('zk_mv_sety') +
+        b('zk_mv_x') + b('zk_mv_y') +
+        /* 转向（第三十五轮：带方向盘的 zk_mv_face 已删除） */
+        b('zk_mv_turnright') + b('zk_mv_turnleft') +
+        b('zk_mv_pointdir') + b('zk_mv_pointto') + b('zk_mv_dir') +
+        b('zk_mv_bounce')) +
+
+      /* ---- 5. 外观（第三十轮，对齐 Scratch looks） ---- */
+      cat('外观', C.stage_looks,
+        /* 第六十二轮：舞台背景（纯白等），放在外观最前面 ——
+           画几何图形 / 做白底课件第一步就是先把背景刷白 */
+        b('zk_bg_color') + b('zk_bg_preset') +
+        b('zk_look_show') + b('zk_look_hide') + b('zk_look_visible') +
+        b('zk_look_setsize') + b('zk_look_chsize') + b('zk_look_size') +
+        b('zk_look_opacity') + b('zk_look_ghost') +
+        b('zk_look_colorfx') + b('zk_look_cleareffects') +
+        /* 叠放层级（第三十二轮从控制模块迁来，第三十五轮四块融合为一块下拉） */
+        b('zk_look_layerop') + b('zk_look_layern') +
+        b('zk_look_layer') + b('zk_look_layercount')) +
+
+      /* ---- 6. 变量（含列表，动态飞出） ---- */
       '<category name="变量" colour="' + C.variable + '" custom="ZKB_VARIABLE"></category>' +
 
-      /* ---- 5. 掌控板（板载资源 + 引脚IO + 音乐 + 已添加设备） ---- */
+      /* ---- 7. 掌控板（单分类，积木上方显示类别）----
+         第六十五轮：不再折叠显示，所有积木放回**同一个分类**平铺，
+         每组上方用 <label> 标出类别；第六十六轮隐藏了与控制模块重复的
+         事件积木、迁走按键积木，现留 彩灯/板载传感器/声音与音乐/
+         语音识别与朗读/引脚与 ADC 共 5 组。
+         顺序仍是 控制→逻辑→屏幕显示→运动→外观→变量→掌控板→高级。 */
       cat('掌控板', C.rgb,
-        /* 第四十四轮：彩灯积木去重。
-           原来有 6 块，实际只有 3 种能力：
-             设置彩灯①为色  /  所有彩灯设为色      ← 重复
-             彩灯①红绿蓝    /  所有彩灯设为红绿蓝  ← 重复
-             关闭彩灯①      /  关闭全部彩灯        ← 重复
-           现在统一成 3 块，靠下拉框里的「全部」选项区分单颗 / 全部：
-             zk_rgb_one   彩灯[0号/1号/2号/全部] 设为 颜色
-             zk_rgb_rgb   彩灯[0号/1号/2号/全部] 红R 绿G 蓝B
-             zk_rgb_off_one  关闭彩灯[0号/1号/2号/全部]
-           代码生成器本来就支持 'ALL'（走 rgb.fill / S.rgb.fill），
-           所以不用改生成逻辑。旧积木定义保留在 blocks-defs / device-blocks
-           里以兼容老工程，只是不再出现在工具箱。 */
+        /* 第六十六轮：「当按键被按下 / 当触摸引脚被触摸 / 当摇晃掌控板」
+           与控制模块「事件程序」完全重复，按用户要求从掌控板隐藏；
+           「按键被按下？/ 按键被触摸？」两块移到控制模块「按键与触摸」。 */
+        grp('彩灯') +
         b('zk_rgb_one') + b('zk_rgb_rgb') + b('zk_rgb_off_one') +
-        b('zk_rgb_brightness') +
-        /* 第三十六轮：读取灯珠颜色 / 亮度 */
-        b('zk_rgb_get') + b('zk_rgb_get_brightness') +
-        b('zk_is_btn') + b('zk_is_touch') +
+        b('zk_rgb_brightness') + b('zk_rgb_get') + b('zk_rgb_get_brightness') +
+        grp('板载传感器') +
         b('zk_light') + b('zk_sound') + b('zk_accel') + b('zk_tilt') +
-        /* 音乐：发声 / 音调 / 速度 / 内置与上传曲目播放
-           第四十四轮：音调与「重置音乐播放状态」原本排在分类最末尾，
-           离其它音乐积木很远，这里归拢到一起。 */
+        b('zk_is_shake') +
+        grp('声音与音乐') +
         b('zk_note') + b('zk_tone') + b('zk_music_stop') +
         b('zk_music_tempo') + b('zk_music_get_tempo') +
         b('zk_music_pitch') + b('zk_music_reset') + b('zk_music_play') +
-        /* 第四十九轮：掌控板内置乐曲（music.BIRTHDAY 等，教材六年级示例用的） */
         b('zk_music_melody') +
-        /* 第二十四轮：AI 语音转文字 + AI 语音合成（板载能力，无需拓展设备） */
+        grp('语音识别与朗读') +
         b('zk_speech_recognize') + b('zk_speech_text') +
         b('zk_speech_conf') + b('zk_speech_is') +
         b('zk_speech_speak') + b('zk_speech_stop') +
         b('zk_speech_speaking') + b('zk_speech_done') +
-        /* 引脚：数字输入输出 / 模拟（PWM）输出 / 模拟输入 */
+        grp('引脚与 ADC') +
         b('zk_pin_dout') + b('zk_pin_pwm') + b('zk_pin_din') + b('zk_pin_ain') +
-        /* 第三十六轮：通用 ADC 读取
-           第四十四轮：去掉了 zk_touchpad_read（「触摸板 P 是否被触摸」）。
-           它和上面的 zk_is_touch（「触摸 P 被触摸？」）生成的代码完全一样
-           （都是 touchVar(PAD).is_pressed()），是同一块积木的两种说法。
-           保留更简洁的 zk_is_touch；
-           积木定义仍留在 device-blocks.js 里以兼容老工程。 */
-        b('zk_adc_read')
-        /* 第二十六轮：已去掉「扩展板电机 / 扩展板灯 / NeoPixel」积木
-           （积木定义仍保留在 blocks-defs 里以兼容旧工程，只是不再显示；
-           第三十六轮按「完善电机/马达积木」需求，把扩展板 parrot 官方积木
-           放到了「直流电机」设备分类里） */) +
-      /* ---- 6. 高级（文本 / 数据集合 / 文件串口 / 自制积木）----
+        b('zk_adc_read')) +
+
+      /* ---- 8. 高级（文本 / 数据集合 / 文件串口 / 自制积木）----
          子分类始终存在于工具箱 XML 中（Blockly 不支持运行时动态插入分类），
          由 app.js 通过 zk-adv-child 标记 + CSS 控制显示/隐藏，
          这样展开/折叠都是纯样式切换，稳定可靠。 */
@@ -408,7 +434,9 @@
       'zk_mp3_volume', 'zk_mp3_playing', 'zk_mp3_folder'] },
     remote: { name: '红外遥控器', colour: C.ir, types: ['zk_remote_key', 'zk_remote_dir', 'zk_buzzer'] },
     /* —— 通讯网络 —— */
-    radio: { name: '无线广播', colour: C.net, types: ['zk_radio_on', 'zk_radio_group', 'zk_radio_send', 'zk_when_radio', 'zk_radio_msg'] },
+    /* 第六十六轮：无线广播积木已常驻「控制」模块，添加设备后不再重复出现一个分类。
+       设备卡片（虚拟仿真里调频道 / 收发模拟）仍然保留。 */
+    radio: { name: '无线广播', colour: C.net, types: [] },
     wifi: { name: 'WiFi', colour: C.net, types: ['zk_wifi_connect', 'zk_wifi_ok'] },
     ntp: { name: 'NTP 网络时间', colour: C.net, types: ['zk_ntp_sync', 'zk_time_now'] },
     mqtt: {
@@ -440,6 +468,11 @@
     speech2: { name: '离线语音识别', colour: C.mic, types: ['zk_speech2_init', 'zk_speech2_result'] },
     /* 第六十轮：画笔（拓展库「其他」类别里的设备，非硬件）。
        分类名用「画笔」，与 Scratch 一致；积木只作用于舞台。 */
+    /* 第六十二轮：雨滴传感器（AO 模拟量接 P0，用引脚积木读雨量） */
+    rain: {
+      name: '雨滴传感器', colour: C.analog,
+      types: ['zk_pin_ain', 'zk_rain_read', 'zk_rain_wet']
+    },
     pen: {
       name: '画笔', colour: C.pen,
       types: ['zk_when_run', 'zk_pen_clear', 'zk_pen_stamp',
@@ -454,6 +487,8 @@
     var info = DEVICE_CAT[base];
     if (!info) return '';
     /* 第十四轮：每类设备只允许添加 1 个，分类名与积木均不再带序号 */
+    /* 第六十六轮：types 为空表示积木已常驻通用分类，不再生成空设备分类 */
+    if (!info.types.length && !(info.children && info.children.length)) return '';
     var blocks = info.types.map(b).join('');
     /* 第二十三轮：有子分类的设备（如 AI 摄像头）展开为飞出层 */
     if (info.children && info.children.length) {

@@ -401,6 +401,11 @@
      各处的 catch 认得它就静默返回，不当成"程序错误"弹日志。 */
   var ABORT = { __mmakeAbort: true };
   function isAbort(e) { return !!(e && e.__mmakeAbort); }
+  /* 第六十六轮：「停止全部脚本」积木用的硬停止标志。
+     与用户点「■ 停止」不同：后者让当前链优雅结束即可，
+     前者要求**所有并发任务**（当开始 / 按键 / 广播事件…）立刻中止，
+     所以 tick / sleep 在这些任务下一次让出时直接抛 ABORT。 */
+  var hardStop = false;
 
   /* ============================================================
    * 天气服务（ZKB.Weather）—— 第二十二轮扩展
@@ -717,15 +722,23 @@
     S = {
       running: function () { return running; },
       tick: function () {
-        return new Promise(function (res) {
+        if (hardStop) return Promise.reject(ABORT);
+        return new Promise(function (res, rej) {
           var wait = Math.max(0, LOOP_PACE - (Date.now() - lastBeat));
-          setTimeout(function () { lastBeat = Date.now(); res(); }, wait);
+          setTimeout(function () {
+            if (hardStop) return rej(ABORT);
+            lastBeat = Date.now(); res();
+          }, wait);
         });
       },
       sleep: function (ms) {
-        return new Promise(function (res) {
+        if (hardStop) return Promise.reject(ABORT);
+        return new Promise(function (res, rej) {
           var t0 = Date.now();
           (function wait() {
+            /* 第六十六轮：「停止全部脚本」要能打断**其它并发任务**里
+               正在进行的长等待（用户点停止时仍走原来的优雅退出）。 */
+            if (hardStop) return rej(ABORT);
             if (!running || Date.now() - t0 >= ms) { lastBeat = Date.now(); return res(); }
             setTimeout(wait, Math.min(20, ms - (Date.now() - t0)));
           })();
@@ -1376,7 +1389,57 @@
       pinOut: function (p, v) { st.pins['pin_' + p] = v; },
       pwm: function (p, v) { st.pins['pin_' + p] = v; },
       pinDin: function () { return 1; },
-      pinAin: function () { return Math.round(500 + Math.random() * 60); },
+      /* ============================================================
+       * 第六十二轮：读取模拟引脚要返回**接在这个口上的传感器**的值
+       *
+       * 以前无论 P0 上接了什么，都返回 500~560 的随机数 ——
+       * 教材示例「读取模拟引脚 P0 ≥ 200 就亮红灯」在仿真里永远成立，
+       * 学生拖雨量滑杆也看不出任何变化，等于这个积木是假的。
+       * 现在按 WireLib 写入的 ZKB.state.connected（{设备id: 端口}）
+       * 反查引脚上的设备，把它的状态换算成 ADC 读数（0~4095）。
+       * ============================================================ */
+      pinAin: function (p) {
+        var pin = 'P' + String(p == null ? '' : p);
+        var conn = (st && st.connected) || {};
+        var devId = null;
+        Object.keys(conn).forEach(function (id) {
+          var port = String(conn[id] || '');
+          if (port === pin || port === String(p) || port.indexOf(pin + '/') === 0) devId = id;
+        });
+        /* 没接线时退一步：只在 P0（雨滴传感器教材默认口）上兜底，
+           不能让 P1/P2… 也返回雨量，否则学生换引脚接线会读到假数据。 */
+        if (!devId && pin === 'P0' && st && st.added && st.added.length) {
+          var cand = st.added.filter(function (id) {
+            return ZKB.baseOf && ZKB.baseOf(id) === 'rain';
+          });
+          if (cand.length) devId = cand[0];
+        }
+        var base = devId ? (ZKB.baseOf ? ZKB.baseOf(devId) : devId) : '';
+        var d = (st.devices && st.devices[base]) || {};
+        switch (base) {
+          case 'rain':
+            return S.rainValue();
+          case 'soil':
+            return Math.max(0, Math.min(4095, Math.round(d.v != null ? d.v : 2000)));
+          case 'lightExt':
+            return Math.max(0, Math.min(4095, Math.round(d.v != null ? d.v : 900)));
+          case 'angle':
+            return Math.round((d.deg != null ? d.deg : 45) / 270 * 4095);
+          case 'mic':
+            return Math.max(0, Math.min(4095, Math.round(d.v != null ? d.v : 100)));
+          default:
+            return Math.round(500 + Math.random() * 60);
+        }
+      },
+
+      /* 第六十二轮：雨滴传感器专用读值（不依赖引脚号，学生直接用） */
+      rainValue: function () {
+        var d = (st.devices && st.devices.rain) || { wet: 20 };
+        var wet = Math.max(0, Math.min(100, Number(d.wet) || 0));
+        /* AO：雨越大 → 数字值越大（参考资料明确写了这个方向） */
+        return Math.round(wet / 100 * 4095);
+      },
+      rainWet: function () { return S.rainValue() >= 200; },
 
       dhtMeasure: function (inst) { devOf('dht', inst); },
       dht: function (inst, k) { var dd = devOf('dht', inst); return k === 't' ? dd.t : dd.h; },
@@ -1688,6 +1751,16 @@
        * 仅作用于舞台模式的非背景元素，真实硬件无对应功能（Python 导出为注释）
        * ============================================================ */
       stage: {
+        /* 第六十二轮：外观模块的「将舞台背景设为…」
+           —— 只改网页舞台，真机无对应硬件（Python 侧输出注释） */
+        setBackground: function (color) {
+          if (ZKB.Stage && ZKB.Stage.setBgColor) ZKB.Stage.setBgColor(color);
+          log('舞台背景设为 ' + color, 'log-sim');
+        },
+        setBackgroundPreset: function (key) {
+          if (ZKB.Stage && ZKB.Stage.setBgPreset) ZKB.Stage.setBgPreset(key);
+          log('舞台背景切换：' + key, 'log-sim');
+        },
         moveTo: function (uid, x, y) {
           uid = resolveEl(uid);
           if (!uid) { log('请先在舞台上添加元素（或在积木里填写元素名称）', 'log-err'); return; }
@@ -2076,6 +2149,40 @@
         return this.tick();
       },
       radioMsg: function () { return st.net.radio.lastMsg || ''; },
+      /* 第六十六轮：radio.receive() —— 读取并**取走**一条广播消息 */
+      radioReceive: function () {
+        var m = st.net.radio.lastMsg || '';
+        st.net.radio.lastMsg = '';
+        return m;
+      },
+      /* 官方 mpython3_radio_recv_msg：只有消息内容完全一致时才执行 */
+      onRadioMsg: function (want, fn) {
+        var key = String(want);
+        log('已订阅广播内容：' + key, 'log-sim');
+        ZKB.bus.on('radio', function () {
+          if (!running || hardStop) return;
+          if (String(st.net.radio.lastMsg || '') !== key) return;
+          Promise.resolve().then(fn).catch(function (e) {
+            if (isAbort(e)) return;
+            log('广播事件错误：' + e.message, 'log-err');
+          });
+        });
+      },
+      /* ============================================================
+       * 第六十六轮：「停止全部脚本」
+       *   1. 调 stop() 停掉音频 / 电机 / 清屏，并把 running 置 false
+       *      —— 之后 S.on 不再派发新事件、while(S.running()) 循环退出；
+       *   2. hardStop 让其它并发任务在下一次 tick/sleep/loopPoint 抛 ABORT；
+       *   3. onHalt() 同步右上角「运行 / 停止」按钮与状态栏；
+       *   4. 抛出 ABORT 结束当前链（run() 的 catch 会识别为主动停止）。
+       * ============================================================ */
+      stopAll: function () {
+        hardStop = true;
+        stop();
+        if (onHalt) onHalt();
+        log('执行「停止全部脚本」，已停止所有程序', 'log-sim');
+        throw ABORT;
+      },
 
       ntpSync: function () {
         log('NTP 网络对时中…', 'log-sim');
@@ -2378,6 +2485,8 @@
     zk_wifi_connect: 'wifi', zk_wifi_ok: 'wifi',
     zk_radio_group: 'radio', zk_radio_send: 'radio',
     zk_when_radio: 'radio', zk_radio_msg: 'radio',
+    /* 第六十六轮：广播指定消息帽子 / 读取一条消息；停止全部脚本不对应硬件 */
+    zk_when_radio_msg: 'radio', zk_radio_receive: 'radio',
     zk_ntp_sync: 'ntp', zk_time_now: 'ntp',
     zk_mqtt_connect: 'mqtt', zk_mqtt_pub: 'mqtt',
     zk_when_mqtt: 'mqtt', zk_mqtt_msg: 'mqtt',
@@ -2415,6 +2524,7 @@
        否则两首会叠着响，学生会以为程序里播错了曲子。 */
     if (ZKB.MusicLib && ZKB.MusicLib.stop) { try { ZKB.MusicLib.stop(); } catch (e) { } }
     ZKB.bus.clear();
+    hardStop = false;      /* 第六十六轮：新一轮运行复位「停止全部脚本」标志 */
     running = true;
     startedAt = Date.now();
     lastBeat = 0;

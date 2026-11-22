@@ -24,6 +24,12 @@
   /* 气泡专用图层：独立挂在 root 上，**不能放gUi**——
      UI 面板（元素库/属性卡）每帧用 gUi.innerHTML = html 重绘，会把气泡一起清掉。*/
   var gSayLayer = null;
+  /* 第六十二轮：背景纯色覆层（外观积木「将舞台背景设为纯白」用），
+     独立一层盖在背景之上、笔迹与元素之下；不改动情景背景本身，
+     「恢复默认背景」只要把 opacity 设回 0 即可。 */
+  var bgTint = null, curBg = null, stageHost = null;
+  /* 舞台元素下方的传感器参数卡（foreignObject 图层） */
+  var gParam = null;
   var rafId = 0;
   var t0 = performance.now();
 
@@ -50,6 +56,7 @@
     /* 注意：只清空舞台容器 #stage-host，绝不能清空整个 #stage-view，
        否则会把工具栏（情景/元素下拉）、气泡与提示条一并删除。 */
     var host = document.getElementById('stage-host');
+    stageHost = host;
     bubble = document.getElementById('stage-bubble');
     /* 兼容旧结构：若仍存在 canvas 则移除 */
     var old = document.getElementById('stage-canvas');
@@ -70,14 +77,20 @@
       root.appendChild(defs);
 
       gBg = layer('g', 'stage-layer-bg');
+      bgTint = el('rect', {
+        id: 'zk-bg-tint', x: 0, y: 0, width: VW, height: VH,
+        fill: '#ffffff', opacity: '0', 'pointer-events': 'none'
+      });
       gPen = layer('g', 'stage-layer-pen');
       gItems = layer('g', 'stage-layer-items');
       gFx = layer('g', 'stage-layer-fx');
       gUi = layer('g', 'stage-layer-ui');
       gSayLayer = layer('g', 'stage-layer-say');
-      root.appendChild(gBg); root.appendChild(gPen);
+      gParam = layer('g', 'stage-layer-param');
+      root.appendChild(gBg); root.appendChild(bgTint); root.appendChild(gPen);
       root.appendChild(gItems);
       root.appendChild(gFx); root.appendChild(gUi);
+      root.appendChild(gParam);      /* 传感器参数卡：在 UI 之上、气泡之下 */
       root.appendChild(gSayLayer);   /* 气泡层永远最上，不被 UI 面板重绘影响 */
 
       buildBackground();
@@ -292,7 +305,10 @@
    * ============================================================ */
   function makeItem(k, x, y) {
     var def = LIB()[k];
-    if (!def) return null;
+    /* 第六十四轮：已下架元素（hidden）不允许再被创建 ——
+       这样老工程 / 本地存档里残留的旗杆，打开时也会被自动跳过，
+       而不是又冒出来一个学生已经删掉的素材。 */
+    if (!def || def.hidden) return null;
     return {
       uid: 'it' + (seq++), k: k,
       x: Math.round(x), y: Math.round(y),
@@ -1860,6 +1876,13 @@
 
     /* 更新所有元素外观 */
     updateItems();
+    /* 第六十二轮：背景覆层跟随舞台尺寸；舞台元素参数卡跟随元素位置 */
+    if (bgTint) {
+      var bw = String(VW), bh = String(VH);
+      if (bgTint.getAttribute('width') !== bw) bgTint.setAttribute('width', bw);
+      if (bgTint.getAttribute('height') !== bh) bgTint.setAttribute('height', bh);
+    }
+    updateStageParams();
 
     /* 变量监视器 */
     drawMonitors();
@@ -2210,6 +2233,170 @@
   }
 
   /* ============================================================
+   * 第六十二轮：舞台背景（外观模块「将舞台背景设为纯白」）
+   *
+   * 情景背景是矢量绘制的教室 / 户外，直接改它等于毁掉整个场景；
+   * 这里用一层纯色 rect 覆盖，随时可以把 opacity 归零恢复原状。
+   * 背景随工程文件一起保存（zkbmeta），下次打开仍是你设的颜色。
+   * ============================================================ */
+  var BG_PRESETS = {
+    white: '#ffffff', black: '#111318', gray: '#eceff3',
+    sky: '#bfe6ff', green: '#8dc46b'
+  };
+  /* SVG 用 preserveAspectRatio="xMidYMid meet"，容器比 viewBox 高时
+     上下会留白；只刷 SVG 里的 rect 会露出 #stage-host 原本的浅蓝底色，
+     看起来「背景没变白」。所以容器底色也要一起刷（用 backgroundColor
+     而不是 background 简写，避免把 show-grid 的网格线一起清掉）。 */
+  function paintHostBg(color) {
+    if (stageHost) stageHost.style.backgroundColor = color || '';
+  }
+  function setBgColor(color) {
+    if (!bgTint) return;
+    var c = String(color || '#ffffff');
+    bgTint.setAttribute('fill', c);
+    bgTint.setAttribute('opacity', '1');
+    paintHostBg(c);
+    curBg = { kind: 'color', value: c };
+    saveScene();
+  }
+  function setBgPreset(key) {
+    if (key === 'default') { clearBg(); return; }
+    var k = BG_PRESETS[key] ? key : 'white';
+    setBgColor(BG_PRESETS[k]);
+    curBg = { kind: 'preset', key: k, value: BG_PRESETS[k] };
+    saveScene();
+  }
+  function clearBg() {
+    if (bgTint) bgTint.setAttribute('opacity', '0');
+    paintHostBg('');
+    curBg = null;
+    saveScene();
+  }
+  function applyBg(data) {
+    if (!bgTint) return;
+    if (!data || !data.value) {
+      bgTint.setAttribute('opacity', '0'); paintHostBg(''); curBg = null; return;
+    }
+    bgTint.setAttribute('fill', data.value);
+    bgTint.setAttribute('opacity', '1');
+    paintHostBg(data.value);
+    curBg = { kind: data.kind || 'color', key: data.key || null, value: data.value };
+  }
+  function bgState() { return curBg ? { kind: curBg.kind, key: curBg.key, value: curBg.value } : null; }
+
+  /* ============================================================
+   * 第六十二轮：舞台元素下方的传感器参数卡
+   *
+   * 以前调温湿度只能切到「虚拟仿真」页找设备卡片，舞台上看不见反馈。
+   * 现在在联动元素正下方放一张小卡（SVG foreignObject 承载 HTML 控件），
+   * 直接拖滑杆就改 ZKB.state.devices，舞台元素 / 标签 / 仿真卡片同步刷新。
+   *
+   * 用 foreignObject 而不是 HTML 绝对定位浮层：坐标就是 SVG 逻辑坐标，
+   * 舞台缩放 / 全屏 / 改尺寸时自动跟随，不用手算 letterbox 偏移。
+   * ============================================================ */
+  var STAGE_PARAM_SPECS = {
+    dhtSensor: {
+      dev: 'dht', title: '温湿度 · 直接拖动调节',
+      fields: [
+        { key: 't', label: '温度', min: -10, max: 50, step: 1, unit: '℃' },
+        { key: 'h', label: '湿度', min: 0, max: 100, step: 1, unit: '%' }
+      ]
+    },
+    ultraSensor: {
+      dev: 'ultrasonic', title: '超声波 · 直接拖动调节',
+      fields: [{ key: 'cm', label: '距离', min: 2, max: 200, step: 1, unit: 'cm' }]
+    },
+    rainSensor: {
+      dev: 'rain', title: '雨滴传感器 · 拖动改变雨量',
+      fields: [{ key: 'wet', label: '雨量', min: 0, max: 100, step: 1, unit: '%' }]
+    },
+    lightSensor: {
+      dev: 'lightExt', title: '光线 · 直接拖动调节',
+      fields: [{ key: 'v', label: '亮度', min: 0, max: 4095, step: 10, unit: '' }]
+    }
+  };
+  var paramNodes = {};   /* uid → {fo, card, rows} */
+
+  function makeParamCard(it, spec) {
+    var fo = document.createElementNS(SVGNS, 'foreignObject');
+    fo.setAttribute('class', 'stage-param-fo');
+    fo.setAttribute('width', 182);
+    fo.setAttribute('height', 22 + spec.fields.length * 22 + 8);
+    var card = document.createElement('div');
+    card.className = 'stage-param-card';
+    var title = document.createElement('div');
+    title.className = 'stage-param-title';
+    title.textContent = spec.title;
+    card.appendChild(title);
+    var rows = {};
+    spec.fields.forEach(function (f) {
+      var row = document.createElement('div');
+      row.className = 'stage-param-row';
+      var lab = document.createElement('span');
+      lab.className = 'sp-label'; lab.textContent = f.label;
+      var input = document.createElement('input');
+      input.type = 'range';
+      input.setAttribute('min', f.min); input.setAttribute('max', f.max);
+      input.setAttribute('step', f.step || 1);
+      var out = document.createElement('b');
+      row.appendChild(lab); row.appendChild(input); row.appendChild(out);
+      card.appendChild(row);
+      rows[f.key] = { input: input, out: out };
+      input.addEventListener('input', function () {
+        var v = Number(input.value);
+        var dv = (ZKB.state && ZKB.state.devices) ? ZKB.state.devices[spec.dev] : null;
+        if (dv) dv[f.key] = v;
+        out.textContent = v + (f.unit || '');
+        /* 仿真卡片 / 舞台元素标签同步 */
+        if (ZKB.SimBoard && ZKB.SimBoard.refreshCards) ZKB.SimBoard.refreshCards(spec.dev);
+        if (ZKB.bus && ZKB.bus.emit) ZKB.bus.emit('sensor-change');
+      });
+    });
+    /* 卡片上的指针事件不能冒泡到舞台，否则会被当成「拖元素」 */
+    ['pointerdown', 'mousedown', 'touchstart', 'click'].forEach(function (ev) {
+      card.addEventListener(ev, function (e) { e.stopPropagation(); }, true);
+    });
+    fo.appendChild(card);
+    gParam.appendChild(fo);
+    return { fo: fo, card: card, rows: rows };
+  }
+
+  function updateStageParams() {
+    if (!gParam || !ZKB.state) return;
+    var seen = {};
+    items.forEach(function (it) {
+      var spec = STAGE_PARAM_SPECS[it.k];
+      if (!spec) return;
+      /* 只给「已添加设备」联动出来的元素挂控件，避免场景装饰元素也冒出一组 */
+      var base = it.dev ? (ZKB.baseOf ? ZKB.baseOf(it.dev) : it.dev) : '';
+      if (base !== spec.dev) return;
+      var dv = (ZKB.state.devices || {})[spec.dev];
+      if (!dv) return;
+      seen[it.uid] = 1;
+      var rec = paramNodes[it.uid] || makeParamCard(it, spec);
+      paramNodes[it.uid] = rec;
+      var p = itemCornerPos(it, it.w / 2, it.h);
+      var x = p.x - 91, y = p.y + 30;   /* 标签 20px + 一点间距 */
+      rec.fo.setAttribute('x', x.toFixed(1));
+      rec.fo.setAttribute('y', y.toFixed(1));
+      spec.fields.forEach(function (f) {
+        var v = Number(dv[f.key]);
+        if (isNaN(v)) return;
+        var r = rec.rows[f.key];
+        if (!r) return;
+        /* 用户正在拖动时不覆盖 input 的值 */
+        if (document.activeElement !== r.input && Number(r.input.value) !== v) r.input.value = v;
+        r.out.textContent = v + (f.unit || '');
+      });
+    });
+    Object.keys(paramNodes).forEach(function (uid) {
+      if (seen[uid]) return;
+      if (paramNodes[uid].fo.parentNode) paramNodes[uid].fo.parentNode.removeChild(paramNodes[uid].fo);
+      delete paramNodes[uid];
+    });
+  }
+
+  /* ============================================================
    * 元素标签（状态提示，如「湿度 800」「热水壶 65°C」）
    * 每帧会调用，故做增量更新：文本不变则不碰 DOM，避免性能抖动。
    *
@@ -2389,7 +2576,9 @@
     /* 第十四轮：巡线小车（机器人模型由舞台情景自行布置元素） */
     traceCar: 'traceCar',
     /* 第六十轮：画笔（非硬件，添加后舞台出现画笔元素作为落笔载体） */
-    pen: 'pen'
+    pen: 'pen',
+    /* 第六十二轮：雨滴传感器 */
+    rain: 'rainSensor'
   };
   var linkedItems = {};   /* devId → uid */
 
@@ -2481,6 +2670,7 @@
       /* 第三十八轮：记录当前生效的情景 key，
          恢复场景时用来同步「情景」下拉框与情景名。 */
       sceneKey: curSceneKey || '',
+      bg: bgState(),
       savedAt: Date.now()
     });
   }
@@ -2501,6 +2691,7 @@
     rebuildLinked();
     /* 第三十八轮：恢复上次场景时同步「情景」下拉框与右侧情景名 */
     if (raw.sceneKey) syncSceneSelect(raw.sceneKey);
+    applyBg(raw.bg);
   }
 
   /* 从记录数组批量恢复元素（restoreScene 与工程文件载入共用） */
@@ -2547,6 +2738,8 @@
     return {
       v: 1,
       sceneKey: curSceneKey || '',
+      /* 第六十二轮：背景（纯色 / 预设）随工程保存 */
+      bg: bgState(),
       size: { w: VW, h: VH },
       assistant: { x: assistant.x, y: assistant.y },
       items: items.map(function (i) {
@@ -2572,6 +2765,7 @@
     items.forEach(updateItemLabel);
     rebuildLinked();
     if (data.sceneKey) { curSceneKey = data.sceneKey; syncSceneSelect(data.sceneKey); }
+    applyBg(data.bg);
     saveScene();
     return true;
   }
@@ -3193,6 +3387,12 @@
     penColorOf: function (uid) { return penRGBA(penState(uid || penHolderUid() || '')); },
     /* 第六十一轮：画笔当前状态（给虚拟仿真的画笔卡片用）
        —— 颜色（rgba + hex）、粗细、是否落笔、HSV 四个参数。 */
+    /* 第六十二轮：舞台背景 / 舞台参数控件 */
+    setBgColor: setBgColor,
+    setBgPreset: setBgPreset,
+    clearBg: clearBg,
+    bgState: bgState,
+    paramSpecs: function () { return STAGE_PARAM_SPECS; },
     penInfo: function (uid) {
       var id = uid || penHolderUid(true) || '';
       var st = penState(id);

@@ -403,7 +403,10 @@
        本项目的 zk_radio_msg 是值积木（output: String），
        角色对不上会让整条程序链断掉。
        这里映射到专门为官方 mxml 准备的语句版积木。 */
-    'hunan_mpython3_radio_recv_msg': 'zk_radio_msg_do',
+    /* 第六十六轮：官方 mpython3_radio_recv_msg 是**帽子块**（field message），
+       以前映成语句型的 zk_radio_msg_do，导入后帽子变成一句空语句、结构全错。
+       现在映成同形的帽子 zk_when_radio_msg。 */
+    'hunan_mpython3_radio_recv_msg': 'zk_when_radio_msg',
     'hunan_mpython_radio_channel': 'zk_radio_group',
     'hunan_mpython_radio_on_off': 'zk_radio_on',
     'hunan_mpython_init_wifi': 'zk_wifi_connect',
@@ -491,6 +494,16 @@
     /* 蜂鸣器 / 音乐 */
     'mpython_music_play': 'zk_music_play',
     'mpython_music_stop': 'zk_music_stop',
+    /* 第六十六轮：官方 mPython 2.0 的广播示例（广播程序.mxml）。
+       这些 type 不带 hunan_ 前缀，以前一个都没收录，打开就是一片未知积木。 */
+    'mpython_main': 'zk_when_start',
+    'mpython_radio_on_off': 'zk_radio_on',
+    'mpython_radio_channel': 'zk_radio_group',
+    'mpython_radio_send': 'zk_radio_send',
+    'mpython_radio_rec': 'zk_radio_msg',
+    'mpython3_radio_recv_msg': 'zk_when_radio_msg',
+    'mpython_display_DispChar_5lines': 'zk_oled_line5',
+    'mpython_4_lines': 'math_number',   /* shadow：行号 */
     /* 板载传感器 */
     'mpython_sensor_temperature': 'zk_dht_val',
     'mpython_sensor_light': 'zk_light',
@@ -882,7 +895,7 @@
     /* 第六十轮：官方「显示在第 N 行」的 shadow（hunan_mpython_4_lines）
        映射成 math_number 后，字段名要从 line 改成 NUM，否则行号丢失、
        整块变成空数字，屏幕显示永远停在第 1 行。 */
-    math_number: { line: 'NUM', NUM: 'NUM' },
+    math_number: { line: 'NUM', NUM: 'NUM', mpython_4_lines: 'NUM' },
     /* 类型转换：官方 TYPE0（转成什么类型）→ 本项目 TYPE */
     zk_str2num: { TYPE0: 'TYPE', TYPE: 'TYPE' }
   };
@@ -1159,7 +1172,11 @@
     /* ---------- 无线 ---------- */
     'zk_radio_group': { type: 'hunan_mpython_radio_channel', v: { G: 'channel' } },
     'zk_radio_send': { type: 'hunan_mpython_radio_send', v: { MSG: 'send' } },
-    'zk_radio_msg': { type: 'hunan_mpython3_radio_recv_msg', f: { message: 'message' } },
+    /* 第六十六轮：zk_radio_msg 是「收到的广播内容」**值块**，
+       以前错指向帽子 hunan_mpython3_radio_recv_msg，导出后再导回必然结构错。 */
+    'zk_radio_msg': { type: 'hunan_mpython_radio_rec' },
+    'zk_when_radio_msg': { type: 'hunan_mpython3_radio_recv_msg', f: { MSG: 'message' } },
+    'zk_radio_receive': { type: 'mpython_radio_rec' },
     /* 第四十五轮：语句版广播 / MQTT 消息（官方 mxml 导入用） */
     'zk_radio_msg_do': { type: 'hunan_mpython3_radio_recv_msg', v: { MSG: 'message' } },
     /* 第六十轮：SIoT 全套（导入/导出双向，revNames 会反向生成口名对照） */

@@ -1448,9 +1448,9 @@
     message0: '无线广播频道设为 %1',
     args0: [{ type: 'input_value', name: 'G', check: 'Number' }],
     previousStatement: null, nextStatement: null, colour: C.net, inputsInline: true,
-    tooltip: '频道相同（0~83）的掌控板之间可以互相收发消息'
+tooltip: '掌控板 2.4G 无线广播，频道范围 1~13；同一频道才能互相收发消息'
   }, function () {
-    this.getInput('G').connection.setShadowDom(Blockly.utils.xml.textToDom('<shadow type="math_number"><field name="NUM">7</field></shadow>'));
+    this.getInput('G').connection.setShadowDom(Blockly.utils.xml.textToDom('<shadow type="math_number"><field name="NUM">13</field></shadow>'));
   });
   def('zk_radio_send', {
     message0: '无线广播发送 %1',
@@ -1828,6 +1828,8 @@
 
   /* ---------- 自定义积木类型清单（供设备依赖检查/示例使用） ---------- */
   ZKB.DEVICE_BLOCK_TYPES = {
+    /* 第六十二轮：雨滴传感器（模拟量，接 P0，用引脚积木或专用积木读值） */
+    rain: ['zk_pin_ain', 'zk_rain_read', 'zk_rain_wet'],
     dht: ['zk_dht_measure', 'zk_dht_val'],
     ultrasonic: ['zk_ultra'],
     servo: ['zk_servo'],
@@ -1863,7 +1865,9 @@
     baro: ['zk_pressure', 'zk_altitude'],
     button: ['zk_ext_btn'],
     fan: ['zk_fan', 'zk_fan_power'],
-    radio: ['zk_radio_group', 'zk_radio_send', 'zk_when_radio', 'zk_radio_msg', 'zk_radio_on'],
+    /* 第六十六轮：无线广播积木常驻「控制」模块，这里同步登记新块 */
+    radio: ['zk_radio_group', 'zk_radio_send', 'zk_when_radio', 'zk_radio_msg',
+      'zk_radio_on', 'zk_when_radio_msg', 'zk_radio_receive'],
     wifi: ['zk_wifi_connect', 'zk_wifi_ok'],
     ntp: ['zk_ntp_sync', 'zk_time_now'],
     mqtt: ['zk_mqtt_connect', 'zk_mqtt_pub', 'zk_when_mqtt', 'zk_mqtt_msg',
@@ -3396,6 +3400,94 @@
     }],
     previousStatement: null, nextStatement: null, colour: C.net, inputsInline: true,
     tooltip: '把掌控板当蓝牙鼠标用（mouse_key）'
+  });
+
+  /* ============================================================
+   * 第六十二轮：舞台背景（外观模块）
+   *
+   * 以前「外观」只能改元素（显示/隐藏/大小/特效），
+   * 学生画画、做课件时想换一张干净的背景（尤其是纯白）却只能
+   * 去舞台工具栏切「情景」，程序里没法控制。
+   * 这里补两块：一块取色器任意颜色，一块常用预设（纯白/纯黑…）。
+   * 背景只作用于网页舞台，真机没有对应硬件 → Python 侧输出仿真注释。
+   * ============================================================ */
+  def('zk_bg_color', {
+    message0: '将舞台背景设为颜色 %1',
+    args0: [{ type: 'field_colour', name: 'COLOR', colour: '#ffffff' }],
+    previousStatement: null, nextStatement: null, colour: C.stage_looks, inputsInline: true,
+    tooltip: '把舞台背景刷成指定颜色，默认纯白 #ffffff\\n' +
+      '画几何图形、做白底课件时先把背景刷白，画笔颜色才看得清'
+  });
+
+  def('zk_bg_preset', {
+    message0: '将舞台背景设为 %1',
+    args0: [{
+      type: 'field_dropdown', name: 'BG', options: [
+        ['纯白', 'white'], ['纯黑', 'black'], ['浅灰', 'gray'],
+        ['天蓝', 'sky'], ['草地绿', 'green'], ['恢复默认背景', 'default']
+      ]
+    }],
+    previousStatement: null, nextStatement: null, colour: C.stage_looks, inputsInline: true,
+    tooltip: '常用纯色背景一键切换；「恢复默认背景」回到当前情景的原始背景\\n' +
+      '（背景不改动舞台上的元素，也不影响画笔笔迹）'
+  });
+
+  /* ============================================================
+   * 第六十二轮：雨滴传感器（拓展库）
+   *
+   * 参考资料：LM393 比较器模块，AO 模拟输出接 ADC（掌控板 P0），
+   * 雨越大 → 电阻越小 → 数字值越大；DO 是数字输出（有雨低电平）。
+   * 「读取模拟引脚 P0」本身就能拿到值（仿真里按接线返回雨量），
+   * 这两块是给学生的便捷写法，免得每次都去下拉里选引脚。
+   * ============================================================ */
+  def('zk_rain_read', {
+    message0: '雨滴传感器 模拟值',
+    args0: [], output: 'Number', colour: C.analog,
+    tooltip: '读取雨滴传感器 AO 的模拟值（0~4095）\\n' +
+      '仿真里可在雨滴传感器卡片或舞台元素下方拖动「雨量」'
+  });
+
+  def('zk_rain_wet', {
+    message0: '下雨了吗？',
+    args0: [], output: 'Boolean', colour: C.analog,
+    tooltip: '模拟值达到阈值（默认 200）即认为下雨\\n' +
+      '等价于「读取模拟引脚 ≥ 200」，教材示例常用这个判断控制彩灯'
+  });
+
+  /* ============================================================
+   * 第六十六轮：控制模块的流程停止 / 无线广播补充积木
+   *
+   * 参考资料：
+   *   · mPython 官方 radio 教程（mpython.readthedocs.io .../radio.html）
+   *   · 参考资料/广播程序/广播程序.mxml 与 .py
+   *   · 积木规范/mpython-docs-master/docs/zh_CN/library/mPython/radio.rst
+   *     （radio.on/off、config(channel 1~13)、send、receive、receive(True)）
+   * ============================================================ */
+
+  /* 停止全部脚本：Scratch 的「停止全部」，终止型积木（后面不能再接积木）。
+     运行时会停掉所有并发任务（当开始 / 按键 / 广播事件等），不只是当前链。 */
+  def('zk_stop_all', {
+    message0: '停止全部脚本',
+    args0: [], previousStatement: null, colour: C.control,
+    tooltip: '立刻结束正在运行的全部程序（包括其它事件积木启动的程序）；此后不再响应事件。' +
+      '真机上等价于退出当前程序。'
+  });
+
+  /* 当收到指定内容的广播时（官方 mpython3_radio_recv_msg 帽子） */
+  def('zk_when_radio_msg', {
+    message0: '当收到广播内容 %1 时',
+    args0: [{ type: 'field_input', name: 'MSG', text: 'on' }],
+    nextStatement: null, colour: C.net, hat: 'cap', inputsInline: true,
+    tooltip: '只有在同频道收到内容完全一致的广播时才执行下面的积木'
+  });
+
+  /* 读取一条广播消息并取走（官方 radio.receive()；与「收到的广播内容」不同，
+     后者只是读取最后一次的内容，不会清空） */
+  def('zk_radio_receive', {
+    message0: '读取一条广播消息',
+    args0: [], output: 'String', colour: C.net,
+    tooltip: 'radio.receive()：取走队列里的一条消息；没有新消息时返回空文本。' +
+      '配合「无线广播频道设为」和「无线广播发送」做电报机实验'
   });
 
 })(window);

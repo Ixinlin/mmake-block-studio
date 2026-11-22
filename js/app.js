@@ -47,6 +47,16 @@
 
   function injectBlockly() {
     var toolboxDom = Blockly.utils.xml.textToDom(ZKB.TOOLBOX_XML);
+    /* 第六十二轮：让「如果 / 一直重复 / 重复 N 次」这类 C 形积木更好拼接。
+       Blockly 默认吸附半径 28px，学生把 C 形块拖到别的积木上常常差几像素
+       就吸不上，看起来像"拼不到一起"。这里放大吸附半径，并把空语句槽
+       从 24px 加高到 40px（空肚子更明显，拖积木进去更容易对准）。 */
+    try {
+      if (Blockly.config) {
+        Blockly.config.snapRadius = 46;
+        Blockly.config.connectingSnapRadius = 40;
+      }
+    } catch (e) { }
     ws = Blockly.inject('blockly-workspace', {
       toolbox: toolboxDom,
       media: 'vendor/blockly/media/',
@@ -59,9 +69,80 @@
       renderer: 'zelos'
     });
 
+    /* 空语句槽加高（Zelos 默认 24px） */
+    try {
+      var zc = ws.getRenderer && ws.getRenderer().getConstants();
+      if (zc) zc.EMPTY_STATEMENT_INPUT_HEIGHT = 40;
+    } catch (e) { }
+
+    /* ---------- 第六十二轮：C 形积木「自动包裹」 ----------
+       把一个「一直重复 / 如果 / 重复 N 次」拖到一串积木上方时，
+       Blockly 只会把它插进链里，下面的积木仍挂在它后面；
+       Scratch 的做法是 C 形块自动张开、把下面那串积木包进"肚子"里。
+       这里在**用户拖拽结束**后补这一步：C 形块空槽 + 后面接着积木
+       → 把后面那串整段移进语句槽，外层高度随之自适应。
+       只认用户手势，加载工程 / 程序化搭积木不会误触发。 */
+    var userGesture = false, pendingWrap = null;
+    function findStatementSlot(block) {
+      var list = block.inputList || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].type === Blockly.inputTypes.STATEMENT && list[i].connection) {
+          return list[i].connection;
+        }
+      }
+      return null;
+    }
+    function wrapStatementBlock(blockId) {
+      var b = (blockId && typeof blockId === 'object') ? blockId
+        : (blockId && ws.getBlockById ? ws.getBlockById(blockId) : null);
+      /* 兼容测试 / 教学脚本里用独立 workspace 搭的积木 */
+      if (!b && blockId && typeof blockId === 'string' &&
+          Blockly.Workspace && Blockly.Workspace.getAll) {
+        var all = Blockly.Workspace.getAll() || [];
+        for (var wi = 0; wi < all.length && !b; wi++) {
+          if (all[wi].getBlockById) b = all[wi].getBlockById(blockId) || null;
+        }
+      }
+      if (!b || b.isShadow() || b.disposed) return false;
+      var slot = findStatementSlot(b);
+      if (!slot || slot.isConnected()) return false;      /* 槽里已有内容，不抢 */
+      if (!b.nextConnection || !b.nextConnection.isConnected()) return false;
+      var first = b.nextConnection.targetBlock();
+      if (!first || first.isShadow() || !first.previousConnection) return false;
+      b.nextConnection.disconnect();
+      slot.connect(first.previousConnection);
+      /* 重绘让外层 C 形块按内容自适应高度 */
+      try { b.render(); } catch (e) { }
+      return true;
+    }
+    /* 暴露给测试与教学示例直接调用 */
+    ZKB.wrapStatementBlock = wrapStatementBlock;
+    document.addEventListener('pointerdown', function () { userGesture = true; }, true);
+    document.addEventListener('pointerup', function () {
+      if (!userGesture) return;
+      userGesture = false;
+      if (!pendingWrap) return;
+      var id = pendingWrap; pendingWrap = null;
+      requestAnimationFrame(function () { wrapStatementBlock(id); });
+    }, true);
+
     // 积木变化 → 实时刷新代码预览与状态栏
     ws.addChangeListener(function (e) {
       if (e.isUiEvent) return;
+      if (userGesture && e.type === Blockly.Events.BLOCK_MOVE && e.blockId) {
+        pendingWrap = e.blockId;
+      }
+      /* 第六十五轮：把积木拖到左侧工具箱删除时，Blockly 会给工具箱加
+         blocklyToolboxDelete 类（CSS 里以前把整个背景抹成透明），
+         个别拖拽结束时序下这个类会残留，导致「积木区背景消失」。
+         删除事件后强制清一次，并重新同步分类配色。 */
+      if (e.type === Blockly.Events.BLOCK_DELETE) {
+        setTimeout(function () {
+          var tb = document.querySelector('.blocklyToolboxDiv');
+          if (tb) tb.classList.remove('blocklyToolboxDelete');
+          if (ZKB.syncCategoryColours) ZKB.syncCategoryColours();
+        }, 0);
+      }
       if (rafCode) cancelAnimationFrame(rafCode);
       rafCode = requestAnimationFrame(refreshCode);
     });
@@ -348,6 +429,7 @@
       }
     });
   }
+
 
   /* ============================================================
 /* ============================================================
@@ -753,7 +835,9 @@
        分类 DOM（zk-adv-child 标记丢失），必须重新标记，否则原本折叠的
        子分类（文本/数据集合/文件串口/自制积木）会被显示出来 */
     renderAdvancedGroup();
-    [60, 200, 600].forEach(function (d) { setTimeout(renderAdvancedGroup, d); });
+    [60, 200, 600].forEach(function (d) {
+      setTimeout(renderAdvancedGroup, d);
+    });
   }
 
   /* ============================================================
@@ -1037,6 +1121,8 @@
    * 板载资源（彩灯、蜂鸣器、按键、光线、声音）不算拓展设备。
    */
   var BLOCK_DEVICE_MAP = {
+    /* 第六十二轮：雨滴传感器（模拟量接 P0） */
+    zk_rain_read: 'rain', zk_rain_wet: 'rain',
     /* 超声波 */
     zk_ultra: 'ultrasonic', zk_ultra_cm: 'ultrasonic',
     zk_ultra_mm: 'ultrasonic', zk_ultra_near: 'ultrasonic',
@@ -1123,7 +1209,9 @@
     zk_ble_hid: 'ble', zk_ble_connected: 'ble',
     zk_ble_key: 'ble', zk_ble_mouse: 'ble',
     zk_radio_send: 'radio', zk_radio_msg: 'radio',
-    zk_radio_group: 'radio', zk_when_radio: 'radio',
+    zk_radio_group: 'radio', zk_when_radio: 'radio', zk_radio_on: 'radio',
+    /* 第六十六轮：控制模块常驻的广播积木（含收到指定内容帽子 / 读取一条消息） */
+    zk_when_radio_msg: 'radio', zk_radio_receive: 'radio',
     zk_weather: 'weather',
     zk_k210_digit: 'camera', zk_k210_face_detect: 'camera',
     zk_k210_face_h: 'camera', zk_k210_face_num: 'camera',

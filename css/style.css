@@ -117,10 +117,19 @@ body{
   border-radius:3px; opacity:1;
 }
 .blocklyTreeRow.blocklyTreeSelected .blocklyTreeIcon{background:#fff !important; opacity:.92;}
-.blocklyToolboxDelete{background:transparent !important;}
+/* 第六十五轮：拖积木到左侧工具箱删除时**保留积木区背景**。
+   以前 .blocklyToolboxDelete 把整个面板背景抹成 transparent，
+   视觉上就是「积木区的背景消失了」。现在保留底色，改用红色内框
+   + 淡红晕染提示「松手即删除」，面板始终看得见。 */
+.blocklyToolboxDelete{
+  background-color:#e9edf2 !important;
+  background:#e9edf2 !important;
+  box-shadow:inset 0 0 0 3px #e0483e, inset 0 0 26px rgba(224,72,62,.10);
+}
 /* 飞出层：背景跟随当前选中分类的浅色底 */
 .blocklyFlyoutBackground{fill:var(--zk-fly-bg, #f0f2f5) !important;}
-.blocklyFlyoutLabel{background:var(--zk-fly-title, #e3e7ec) !important;}
+/* label 的背景是 SVG rect，要用 fill（原来写 background 对 SVG 无效） */
+.blocklyFlyoutLabelBackground{fill:var(--zk-fly-title, #e3e7ec) !important;}
 .blocklyMainBackground{stroke:none !important;}
 
 /* 高级分组：可折叠
@@ -141,6 +150,46 @@ body.zk-adv-open .blocklyToolboxCategory.zk-adv-child .blocklyTreeRow{
   border-left-style:dashed;
 }
 .blocklyToolboxCategory.zk-adv-toggle > .blocklyTreeRow{cursor:pointer;}
+
+/* ============================================================
+ * 第六十五轮：掌控板改回单分类，积木上方显示类别标题
+ * 参考图里「事件程序」那种粗体深蓝标题 + 浅绿背景条。
+ * web-class="zk-board-group" 会挂到 Blockly 的 label 元素上，
+ * 这里同时兼容「挂在 <g> 上」和「挂在背景 rect 上」两种实现。
+ * ============================================================ */
+.zk-board-group .blocklyFlyoutLabelText,
+.blocklyFlyoutLabel.zk-board-group .blocklyFlyoutLabelText,
+text.zk-board-group{
+  fill:#2b3a67 !important;
+  font-size:17px !important;
+  font-weight:700 !important;
+  font-family:"Microsoft YaHei","PingFang SC",sans-serif !important;
+}
+.zk-board-group .blocklyFlyoutLabelBackground,
+.blocklyFlyoutLabel.zk-board-group .blocklyFlyoutLabelBackground,
+rect.zk-board-group{
+  fill:#dcefdc !important;
+  stroke:#bcdcc2 !important;
+  /* 拉成整条浅色分类带（参考图里类别标题是横跨面板的一条），
+     文字仍靠左，和积木组明显分开 */
+  width:250px !important;
+  height:28px !important;
+}
+
+/* 第六十二轮：舞台元素下方的传感器参数卡（温湿度 / 雨量 / 光照…）
+   用 SVG foreignObject 承载，坐标随 SVG 一起缩放，不用手动换算。 */
+.stage-param-card{
+  box-sizing:border-box; width:100%; height:100%;
+  background:rgba(255,255,255,.96); border:1px solid #c8d3e0;
+  border-radius:8px; padding:4px 7px; box-shadow:0 2px 8px rgba(20,30,45,.16);
+  font:13px/1.35 "Microsoft YaHei","PingFang SC",sans-serif; color:#334155;
+  user-select:none; -webkit-user-select:none; cursor:default;
+}
+.stage-param-title{font-size:11px; color:#8a94a3; margin-bottom:2px; text-align:center;}
+.stage-param-row{display:flex; align-items:center; gap:6px; margin:3px 0; white-space:nowrap;}
+.stage-param-row > span.sp-label{width:32px; color:#64748b; flex:0 0 32px;}
+.stage-param-row input[type=range]{flex:1 1 auto; min-width:0; height:12px; margin:0; cursor:ew-resize;}
+.stage-param-row b{width:46px; flex:0 0 46px; text-align:right; font-family:ui-monospace,Consolas,monospace; color:#0f5c9c;}
 
 /* 左下角按钮组（拓展库 / 素材） */
 /* 左下角工具条：作为 #app 的直接子元素，与左侧积木区同级并置于最上层。

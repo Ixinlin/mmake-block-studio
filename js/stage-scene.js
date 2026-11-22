@@ -749,7 +749,7 @@
   /* 为每个元素生成 thumb（惰性，渲染时若无则跳过） */
   function ensureThumbs() {
     Object.keys(LIB).forEach(function (k) {
-      if (!LIB[k].thumb) LIB[k].thumb = makeThumb(k);
+      if (!LIB[k].hidden && !LIB[k].thumb) LIB[k].thumb = makeThumb(k);
     });
   }
 
@@ -892,7 +892,7 @@
    * 校园场景元素
    * ============================================================ */
 
-  /* 教学楼（多层，带窗户与旗杆） */
+  /* 教学楼（多层，带窗户与校牌） */
   LIB.schoolBuilding = {
     name: '教学楼', w: 260, h: 210, cat: '校园',
     build: function (st) {
@@ -928,9 +928,16 @@
     dynamic: true
   };
 
-  /* 旗杆 + 国旗 */
+  /* 旗杆 + 国旗
+     第六十四轮：按用户要求从舞台模式「去掉旗杆元素」。
+     ⚠ 这里**保留 LIB 定义**（打 hidden 标记），而不是直接删：
+       · 老工程 / 本地舞台存档里可能存着 k:'flagpole'，删了会让 restoreItems
+         解析不到定义，虽然不崩但会留下隐患；
+       · 素材库、情景下拉都通过 SceneLib.keys()/byCat() 取列表，过滤 hidden
+         即可让它彻底不再出现，舞台 makeItem 也拒绝创建（见 stage.js）。
+     效果：新建、素材库、默认情景、老存档打开后都看不到旗杆。 */
   LIB.flagpole = {
-    name: '旗杆', w: 76, h: 200, cat: '校园',
+    name: '旗杆', w: 76, h: 200, cat: '校园', hidden: true,
     build: function (st) {
       var t = (Date.now ? 0 : 0);
       var s = shadow(38, 196, 16, 4);
@@ -1186,6 +1193,53 @@
       var t = (d.t != null ? d.t : 26);
       var h = (d.h != null ? d.h : 55);
       return '温' + Math.round(t) + '° 湿' + Math.round(h) + '%';
+    },
+    dynamic: true
+  };
+
+  /* ============================================================
+   * 第六十二轮：雨滴传感器（LM393 + 雨滴感应板）
+   * 舞台元素下方挂「雨量」滑杆，拖动时板上的雨滴数量与模拟值实时变化；
+   * 「读取模拟引脚 P0」积木读到的就是这个值（见 sim-engine.pinAin）。
+   * ============================================================ */
+  LIB.rainSensor = {
+    name: '雨滴传感器', w: 96, h: 78, cat: '生活物品', dynamic: true,
+    build: function (st) {
+      var d = (st && st.devices && st.devices.rain) || { wet: 20 };
+      var wet = Math.max(0, Math.min(100, Number(d.wet) || 0));
+      var val = Math.round(wet / 100 * 4095);
+      var s = shadow(48, 72, 36, 4);
+      /* 雨滴感应板（铜箔走线） */
+      s += '<rect x="6" y="12" width="60" height="44" rx="3" fill="#2c6f9e" stroke="#1b4a6d" stroke-width="1.5"/>';
+      for (var r = 0; r < 5; r++) {
+        s += '<line x1="9" y1="' + (17 + r * 8) + '" x2="63" y2="' + (17 + r * 8) +
+          '" stroke="#d9c06a" stroke-width="1.7"/>';
+      }
+      /* 落在板上的雨滴：数量随雨量增加 */
+      var drops = Math.ceil(wet / 20);
+      for (var i = 0; i < drops; i++) {
+        var dx = 14 + (i * 17) % 45, dy = 6 + (i % 2) * 5;
+        s += '<path d="M' + dx + ' ' + dy + ' q4 7 0 8 q-4 -1 0 -8" fill="#5ec8f2" opacity=".9"/>';
+      }
+      /* LM393 控制小板 + 指示灯 */
+      s += '<rect x="68" y="28" width="22" height="24" rx="2" fill="#20402a" stroke="#122718"/>' +
+        '<rect x="71" y="32" width="9" height="8" rx="1" fill="#101820"/>' +
+        '<circle cx="84" cy="35" r="2.4" fill="' + (wet > 5 ? '#66dd88' : '#3a5a42') + '"/>' +
+        '<text x="79" y="48" font-size="6" text-anchor="middle" fill="#9fd8b0" ' +
+        'font-family="monospace">LM393</text>';
+      /* 读数 */
+      s += '<rect x="14" y="58" width="46" height="13" rx="3" fill="rgba(8,22,32,.85)"/>' +
+        '<text x="37" y="68" font-size="8" text-anchor="middle" fill="#8be9ff" ' +
+        'font-family="monospace">' + val + '</text>';
+      /* 引脚 */
+      s += '<g fill="#c79a3a"><rect x="20" y="72" width="5" height="4"/>' +
+        '<rect x="32" y="72" width="5" height="4"/><rect x="44" y="72" width="5" height="4"/></g>';
+      return s;
+    },
+    label: function (st) {
+      var d = (st && st.devices && st.devices.rain) || { wet: 20 };
+      var wet = Math.max(0, Math.min(100, Number(d.wet) || 0));
+      return '雨量 ' + Math.round(wet) + '% · ' + Math.round(wet / 100 * 4095);
     },
     dynamic: true
   };
@@ -1827,7 +1881,6 @@
       { k: 'schoolBuilding', x: 90, y: 130 },
       { k: 'schoolGate', x: 420, y: 300 },
       { k: 'playground', x: 430, y: 190 },
-      { k: 'flagpole', x: 330, y: 250 },
       { k: 'streetLamp', x: 300, y: 250 },
       { k: 'streetLamp', x: 730, y: 250 },
       { k: 'basketballHoop', x: 700, y: 150 },
@@ -2728,14 +2781,21 @@
 
   ZKB.SceneLib = {
     LIB: LIB, SCENES: SCENES, GRAD_DEFS: GRAD_DEFS,
-    keys: function () { return Object.keys(LIB); },
+    /* 第六十四轮：hidden 元素（如已下架的旗杆）不进素材库、不进下拉 */
+    keys: function () {
+      return Object.keys(LIB).filter(function (k) { return !LIB[k].hidden; });
+    },
     byCat: function (cat) {
-      return Object.keys(LIB).filter(function (k) { return LIB[k].cat === cat; });
+      return Object.keys(LIB).filter(function (k) {
+        return LIB[k].cat === cat && !LIB[k].hidden;
+      });
     },
     cats: function () {
       ensureThumbs();
       var s = {};
-      Object.keys(LIB).forEach(function (k) { s[LIB[k].cat] = 1; });
+      Object.keys(LIB).forEach(function (k) {
+        if (!LIB[k].hidden) s[LIB[k].cat] = 1;
+      });
       /* 分类展示顺序：生活物品 → 智能硬件 → 交通 → 校园 → 机器人 → 场景 */
       var ORDER = ['生活物品', '智能硬件', '交通', '校园', '机器人', '场景'];
       return Object.keys(s).sort(function (a, b) {

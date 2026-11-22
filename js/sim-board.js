@@ -57,6 +57,8 @@
       traceCar: { l: 0, r: 0, auto: true, line: '离线', dist: 200, target: '' },
       lightExt: { v: 900 },
       soil: { v: 2000 },
+      /* 第六十二轮：雨滴传感器雨量（0~100%），AO 模拟值 = wet/100*4095 */
+      rain: { wet: 20 },
       pm25: { v: 35 },
       baro: { p: 1013 },
       button: { on: false },
@@ -350,6 +352,12 @@
       case 'dht':
         return '<div class="val">温度 <b id="v-dht-t">26</b> ℃　湿度 <b id="v-dht-h">55</b> %</div>' +
           slider('dht-t', '温度', -10, 50, 26) + slider('dht-h', '湿度', 0, 100, 55);
+      /* 第六十二轮：雨滴传感器 —— 拖「雨量」，模拟值跟着变，
+         「读取模拟引脚 P0 ≥ 200」这类程序就能在仿真里跑起来 */
+      case 'rain':
+        return '<div class="val">模拟值 <b id="v-rain-val">819</b> / 4095</div>' +
+          '<div class="val">雨量 <b id="v-rain-wet">20</b> %</div>' +
+          slider('rain', '雨量（0 无雨 · 100 暴雨）', 0, 100, 20);
       case 'ultrasonic':
         return '<div class="val">距离 <b id="v-ultra">30</b> cm</div>' +
           slider('ultra', '障碍物距离', 2, 200, 30);
@@ -761,6 +769,10 @@
           '也可以点「红外遥控器」卡片的方向键</div>';
       default: return '';
     }
+  }
+  function setTxt(card, id, v) {
+    var el = card.querySelector('#' + id);
+    if (el) el.textContent = v;
   }
   function slider(id, label, min, max, val) {
     return '<label style="font-size:10px;color:#9aa3af">' + label +
@@ -1656,6 +1668,13 @@
     }
     if (base === 'ultrasonic') {
       bindSl('sl-ultra', function (x) { DV.cm = x; card.querySelector('#v-ultra').textContent = x; });
+    }
+    if (base === 'rain') {
+      bindSl('sl-rain', function (x) {
+        DV.wet = x;
+        setTxt(card, 'v-rain-wet', x);
+        setTxt(card, 'v-rain-val', Math.round(x / 100 * 4095));
+      });
     }
     if (base === 'servo') {
       card.querySelectorAll('[data-servo]').forEach(function (b) {
@@ -3020,7 +3039,24 @@
   ZKB.SimBoard = {
     init: init,
     /* 第六十轮：网络卡片（MQTT / 蓝牙）状态刷新，供仿真引擎在状态变化后调用 */
-    refreshCards: function () { refreshNetUI(); },
+    refreshCards: function (id) {
+      refreshNetUI();
+      /* 第六十二轮：舞台元素下方的滑杆改了传感器值，卡片数字要跟着变 */
+      try {
+        var d = state.devices || {};
+        document.querySelectorAll('.dev-card').forEach(function (card) {
+          var set = function (domId, v) { setTxt(card, domId, v); };
+          if (d.dht) { set('v-dht-t', d.dht.t); set('v-dht-h', d.dht.h); }
+          if (d.ultrasonic) set('v-ultra', d.ultrasonic.cm);
+          if (d.rain) {
+            set('v-rain-wet', d.rain.wet);
+            set('v-rain-val', Math.round(d.rain.wet / 100 * 4095));
+            var sl = card.querySelector('#sl-rain');
+            if (sl && sl.value !== String(d.rain.wet)) sl.value = d.rain.wet;
+          }
+        });
+      } catch (e) { }
+    },
     /* AI 摄像头卡片的重绘回调表：{设备 id: fn}。
        人脸库变化时由 Vision.notifyFaceChange() 触发。*/
     _camPainters: {},

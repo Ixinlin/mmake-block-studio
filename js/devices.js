@@ -481,6 +481,30 @@
       '<circle cx="22" cy="20" r="4" fill="#cf7a16"/><circle cx="22" cy="20" r="1.6" fill="#7a3d17"/></svg>';
   };
 
+  /* 第六十二轮：雨滴传感器（LM393 比较器 + 雨滴感应板）
+     AO 模拟输出接掌控板 P0（ADC），雨水越大读数越大；
+     DO 是数字输出（有雨低电平）。参考资料：参考资料/雨滴传感器.docx */
+  ICONS.rain = function (s) {
+    return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 48 48">' +
+      /* 雨滴感应板（斜放的印刷电路板） */
+      '<rect x="5" y="7" width="28" height="27" rx="2" fill="#2c6f9e" stroke="#1b4a6d" stroke-width="1.2"/>' +
+      '<g stroke="#d9c06a" stroke-width="1.6" fill="none">' +
+      '<path d="M8 12 H30 M8 17 H30 M8 22 H30 M8 27 H30 M8 32 H30"/>' +
+      '<path d="M10 10 V33 M16 10 V33 M22 10 V33 M28 10 V33"/></g>' +
+      /* 落在板上的雨滴 */
+      '<g fill="#5ec8f2"><path d="M12 3 q3 5 0 6 q-3 -1 0 -6"/>' +
+      '<path d="M24 2 q3 5 0 6 q-3 -1 0 -6"/>' +
+      '<path d="M18 5 q2 3 0 4 q-2 -1 0 -4"/></g>' +
+      /* 控制板 LM393 */
+      '<rect x="33" y="19" width="12" height="14" rx="2" fill="#20402a" stroke="#122718"/>' +
+      '<rect x="35" y="22" width="5" height="5" rx="1" fill="#101820"/>' +
+      '<circle cx="42" cy="24" r="1.6" fill="#66dd88"/>' +
+      /* 引脚 */
+      '<g fill="#c79a3a"><rect x="35" y="34" width="3" height="5"/>' +
+      '<rect x="39" y="34" width="3" height="5"/><rect x="43" y="34" width="2" height="5"/></g>' +
+      '</svg>';
+  };
+
   /* ---------------- 设备清单 ---------------- */
   ZKB.DEVICE_LIST = [
     { id: 'dht', name: '温湿度传感器', desc: 'DHT11 数字温湿度', pins: ['P1'], cat: 'sensor' },
@@ -495,6 +519,8 @@
     { id: 'camera', name: 'AI 摄像头', desc: 'AI 视觉识别（UART）', pins: ['P13', 'P14'], cat: 'sensor' },
     { id: 'mic', name: '麦克风', desc: '模拟量声音采集', pins: ['P3'], cat: 'sensor' },
     { id: 'lightExt', name: '光线传感器', desc: '模拟量光照强度', pins: ['P2'], cat: 'sensor' },
+    /* 第六十二轮：雨滴传感器（AO 接 P0，参考教材示例「读取模拟引脚 P0 ≥ 200」） */
+    { id: 'rain', name: '雨滴传感器', desc: 'LM393 雨滴感应板，AO 模拟量接 P0', pins: ['P0'], cat: 'sensor' },
     /* —— 以下为依据 DFRobot 资料新增的硬件 —— */
     { id: 'tracker', name: '巡线传感器', desc: 'SEN0241 巡线&光感（5 路）', pins: ['P13', 'P14'], cat: 'sensor' },
     { id: 'gravity', name: 'AS7341 颜色', desc: 'SEN0364 可见光颜色（I2C）', pins: ['I2C 5V'], cat: 'sensor' },

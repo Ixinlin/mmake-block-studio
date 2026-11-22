@@ -123,6 +123,7 @@
     /* IO 口族（3Pin：GND / 3V3 / P） */
     dht: 'io', ultrasonic: 'io', servo: 'io', ir: 'io', pump: 'io',
     mic: 'io', lightExt: 'io', soil: 'io', pm25: 'io', button: 'io',
+    rain: 'io',   /* 第六十二轮：雨滴传感器 AO 接 P0（3Pin IO 口） */
     fan: 'io', tracker: 'io', angle: 'io', irTx: 'io', irRx: 'io',
     ledModule: 'io', rgbStrip: 'io', remote: 'io',
     gps: 'net', speech2: 'net',
